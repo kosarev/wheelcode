@@ -213,10 +213,8 @@ def main():
 </Directory>
 """)
     target.run_shell_command('service mysql restart')
-    '''
 
     # Set MySQL password and disable password-less access.
-    '''
     target.run_shell_command('service mysql start')
     target.run_shell_command('mysql -u root --execute "%s"' % (
         'use mysql; '
@@ -227,25 +225,24 @@ def main():
     target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
 
     target.run_shell_command('service mysql restart')
-    '''
 
     # Configure server timezone.
-    '''
     target.run_shell_command(
         r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Europe/London'# }" /etc/php/7.2/apache2/php.ini""")
     target.run_shell_command('service apache2 restart')
-    '''
-
-    # target.run_shell_command('chgrp www-data /opt/phabricator/webroot')
-    # target.run_shell_command('service apache2 restart')
 
     # Setup MySQL Schema.
-    '''
     target.run_shell_command('service apache2 stop')
     target.run_shell_command('/opt/phabricator/bin/phd stop')
     target.run_shell_command('/opt/phabricator/bin/storage upgrade --force')
     target.run_shell_command('service apache2 start')
+
+    # OPcache should be configured to never revalidate code.
+    target.run_shell_command(
+        r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
+    target.run_shell_command('service apache2 restart')
     '''
+
 
 
     '''
