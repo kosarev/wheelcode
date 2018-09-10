@@ -282,7 +282,7 @@ def main():
     '''
 
     # Configure 'innodb_buffer_pool_size'.
-    target.write_file('/etc/mysql/conf.d/phabricator_tweaks.cnf',
+    target.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
                       b"""
 # Phabricator recommendations for MySQL.
 
