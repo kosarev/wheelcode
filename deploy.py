@@ -191,7 +191,6 @@ def main():
             target.run_shell_command(
                 'cd /opt && '
                 'cd %s && git pull' % comp)
-    '''
 
     target.write_file('/etc/apache2/sites-available/phabricator.conf',
                       b"""
@@ -205,11 +204,19 @@ def main():
   # Make sure you include "/webroot" at the end!
   DocumentRoot /opt/phabricator/webroot
 
+
   RewriteEngine on
   RewriteRule ^(.*)$          /index.php?__path__=$1  [B,L,QSA]
 </VirtualHost>
-""")
 
+<Directory "/opt/phabricator/webroot">
+    Require all granted
+</Directory>
+""")
+    '''
+
+    # target.run_shell_command('chgrp www-data /opt/phabricator/webroot')
+    # target.run_shell_command('service apache2 restart')
 
     '''
     target.run_shell_command('service apache2 start')
@@ -217,9 +224,22 @@ def main():
     target.run_shell_command('a2ensite phabricator')
     target.run_shell_command('a2enmod rewrite')
     target.run_shell_command('service apache2 restart')
-
-    target.run_shell_command('service mysql start')
     '''
+
+    # target.run_shell_command('service mysql stop')
+
+    # Set MySQL password and disable password-less access.
+    '''
+    target.run_shell_command('mysql -u root --execute "%s"' % (
+        'use mysql; '
+        'update user set password=PASSWORD(\'5bzc7KahM3AroaG\') where User=\'root\'; '
+        'update mysql.user set plugin=null where user=\'root\'; '
+        'flush privileges;'))
+    '''
+
+    # target.run_shell_command('service mysql start')
+
+    # target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
 
     target.run_shell_command('ps aux')
 
