@@ -3,6 +3,7 @@
 
 import subprocess
 import sys
+import tempfile
 
 
 # A customizable logger.
@@ -88,6 +89,15 @@ class DockerContainerInterface(object):
         # self.log('Status: ' + repr(status))
         return status == 0
 
+    def write_file(self, path, content):
+        with tempfile.NamedTemporaryFile() as f:
+            f.write(content)
+            f.flush()
+
+            self.local_shell.run_shell_command(
+                ['docker', 'cp', f.name,
+                 '%s:%s' % (self.container_name, path)])
+
 
 # Implements basic target operations.
 class Target(object):
@@ -108,6 +118,9 @@ class Target(object):
 
     def does_file_exist(self, path):
         return self._iface.does_file_exist(path)
+
+    def write_file(self, path, content):
+        return self._iface.write_file(path, content)
 
 
 def aptget_update(target):
@@ -162,7 +175,6 @@ def main():
          'php-json',
          'php-mbstring'],
         target)
-    '''
 
     phabricator_components = [
         'libphutil',
@@ -173,20 +185,43 @@ def main():
     for comp in phabricator_components:
         if not target.does_file_exist('/root/%s' % comp):
             target.run_shell_command(
-                'cd /root && '
+                'cd /opt && '
                 'git clone https://github.com/phacility/%s.git' % comp)
         else:
             target.run_shell_command(
-                'cd /root && '
+                'cd /opt && '
                 'cd %s && git pull' % comp)
+    '''
+
+    target.write_file('/etc/apache2/sites-available/phabricator.conf',
+                      b"""
+<VirtualHost *>
+  # Change this to the domain which points to your host.
+  ServerName 172.19.0.5
+
+  # Change this to the path where you put 'phabricator' when you checked it
+  # out from GitHub when following the Installation Guide.
+  #
+  # Make sure you include "/webroot" at the end!
+  DocumentRoot /opt/phabricator/webroot
+
+  RewriteEngine on
+  RewriteRule ^(.*)$          /index.php?__path__=$1  [B,L,QSA]
+</VirtualHost>
+""")
 
 
-    # target.run_shell_command('a2enmod rewrite')
+    '''
+    target.run_shell_command('service apache2 start')
+    target.run_shell_command('a2dissite 000-default')
+    target.run_shell_command('a2ensite phabricator')
+    target.run_shell_command('a2enmod rewrite')
+    target.run_shell_command('service apache2 restart')
 
-    # target.run_shell_command('service apache2 start')
-    # target.run_shell_command('service mysql start')
+    target.run_shell_command('service mysql start')
+    '''
 
-    # target.run_shell_command('ps aux')
+    target.run_shell_command('ps aux')
 
     # target.run_shell_command('mysql --execute "list;"')
 
