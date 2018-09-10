@@ -72,13 +72,13 @@ class DockerContainerInterface(object):
         self.log = log
         self.local_shell = LocalShell(log)
 
-    def run_shell_command(self, command):
+    def run_shell_command(self, command, may_fail=False):
         if not isinstance(command, list):
             command = command.split()
 
         command = ['docker', 'exec', '-it', self.container_name,
                    'sh', '-c', '%s' % ' '.join(command)]
-        return self.local_shell.run_shell_command(command)
+        return self.local_shell.run_shell_command(command, may_fail)
 
     def does_file_exist(self, path):
         status, stdout = self.local_shell.run_shell_command(
@@ -105,13 +105,13 @@ class Target(object):
         self._iface = iface
         self._completed_actions = set()
 
-    def run_shell_command(self, command, action_id=None):
+    def run_shell_command(self, command, action_id=None, may_fail=False):
         # Do not perform actions that have already been marked as
         # completed.
         if action_id and action_id in self._completed_actions:
             return
 
-        self._iface.run_shell_command(command)
+        self._iface.run_shell_command(command, may_fail)
 
         if action_id:
             self._completed_actions.add(action_id)
@@ -184,7 +184,7 @@ def main():
     ]
 
     for comp in phabricator_components:
-        if not target.does_file_exist('/root/%s' % comp):
+        if not target.does_file_exist('/opt/%s' % comp):
             target.run_shell_command(
                 'cd /opt && '
                 'git clone https://github.com/phacility/%s.git' % comp)
@@ -217,15 +217,30 @@ def main():
 
     # Set MySQL password and disable password-less access.
     target.run_shell_command('service mysql start')
+    # TODO: 'update mysql.user set plugin=null where user=\'root\'; '
+    '''
     target.run_shell_command('mysql -u root --execute "%s"' % (
         'use mysql; '
         'update user set password=PASSWORD(\'5bzc7KahM3AroaG\') where User=\'root\'; '
-        'update mysql.user set plugin=null where user=\'root\'; '
         'flush privileges;'))
+    '''
 
+    # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
+    # Create Phabricator MySQL user $PH_MYSQL_USER.
+    # Grant usage rights on phabricator_* to Phabricator MySQL user $PH_MYSQL_USER.
+    # (https://coderwall.com/p/ne1thg/phabricator-mysql-permissions)
+    target.run_shell_command('mysql -u root --execute "%s"' % (
+        """DROP USER 'phab'@'localhost'; """),
+        may_fail=True)
+
+    target.run_shell_command('mysql -u root --execute "%s"' % (
+        """CREATE USER 'phab'@'localhost' IDENTIFIED BY '5bzc7KahM3AroaG'; """
+        """GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW ON \`phabricator\_%\`.* TO 'phab'@'localhost';"""))
+
+    target.run_shell_command('/opt/phabricator/bin/config set mysql.user phab')
     target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
-
     target.run_shell_command('service mysql restart')
+    target.run_shell_command('/opt/phabricator/bin/phd restart')
 
     # Configure server timezone.
     target.run_shell_command(
@@ -260,26 +275,20 @@ def main():
     target.run_shell_command('service mysql restart')
 
     # Set MySQL STRICT_ALL_TABLES mode.
-    target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-        'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
-    target.run_shell_command('service mysql restart')
+    # TODO: We do this in the config file.
+    # target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+    #     'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
+    # target.run_shell_command('service mysql restart')
     '''
 
     # Configure 'innodb_buffer_pool_size'.
-    '''
-    target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-        'SET GLOBAL innodb_buffer_pool_size=1600M;'))
-    target.run_shell_command('service mysql restart')
-
-    cat ${STARTDIR}/templates/mysql/phabricator_tweaks.cnf | sub_template_vars > /etc/mysql/conf.d/phabricator_tweaks.cnf
-
-    '''
-
     target.write_file('/etc/mysql/conf.d/phabricator_tweaks.cnf',
                       b"""
 # Phabricator recommendations for MySQL.
 
 [mysqld]
+
+sql_mode = STRICT_ALL_TABLES
 
 # Size of the memory area where InnoDB caches table and index data. Actually
 # needs 10% more than specified for related cache structures. Phabricator
@@ -287,10 +296,13 @@ def main():
 # allocate the specified amount of memory with this error:
 #     InnoDB: Fatal error: cannot allocate memory for the buffer pool
 # This happened with 400M pool size (with apache and phd daemons running).
-innodb_buffer_pool_size=1600M
+innodb_buffer_pool_size = 1600M
+
+max_allowed_packet = 33554432
 """)
     target.run_shell_command('service mysql restart')
-    # target.run_shell_command('service apache2 restart')
+    target.run_shell_command('/opt/phabricator/bin/phd restart')
+    target.run_shell_command('service apache2 restart')
 
     '''
     target.run_shell_command('service apache2 start')
