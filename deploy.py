@@ -65,7 +65,8 @@ class DockerContainerInterface(object):
         self.local_shell = LocalShell(log)
 
     def run(self, command):
-        command = ['docker', 'exec', '-it', self.container_name] + command
+        command = ['docker', 'exec', '-it', self.container_name,
+                   'sh', '-c', '%s' % ' '.join(command)]
         return self.local_shell.run(command)
 
 
@@ -106,8 +107,9 @@ def main():
     iface = DockerContainerInterface('phabricator', log)
     target = Target(iface)
 
-    apt_update_upgrade(target)
-    apt_update_upgrade(target)
+    # apt_update_upgrade(target)
+    # target.run(['su', '-'])
+    target.run(['cd', '/root', '&&', 'pwd'])
 
 
 if __name__ == '__main__':
