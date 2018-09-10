@@ -258,12 +258,39 @@ def main():
     target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
         'SET GLOBAL max_allowed_packet=33554432;'))
     target.run_shell_command('service mysql restart')
-    '''
 
     # Set MySQL STRICT_ALL_TABLES mode.
     target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
         'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
     target.run_shell_command('service mysql restart')
+    '''
+
+    # Configure 'innodb_buffer_pool_size'.
+    '''
+    target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+        'SET GLOBAL innodb_buffer_pool_size=1600M;'))
+    target.run_shell_command('service mysql restart')
+
+    cat ${STARTDIR}/templates/mysql/phabricator_tweaks.cnf | sub_template_vars > /etc/mysql/conf.d/phabricator_tweaks.cnf
+
+    '''
+
+    target.write_file('/etc/mysql/conf.d/phabricator_tweaks.cnf',
+                      b"""
+# Phabricator recommendations for MySQL.
+
+[mysqld]
+
+# Size of the memory area where InnoDB caches table and index data. Actually
+# needs 10% more than specified for related cache structures. Phabricator
+# whines if this is set to less than 256M. MySQL won't start if it cannot
+# allocate the specified amount of memory with this error:
+#     InnoDB: Fatal error: cannot allocate memory for the buffer pool
+# This happened with 400M pool size (with apache and phd daemons running).
+innodb_buffer_pool_size=1600M
+""")
+    target.run_shell_command('service mysql restart')
+    # target.run_shell_command('service apache2 restart')
 
     '''
     target.run_shell_command('service apache2 start')
