@@ -215,8 +215,31 @@ def main():
 """)
     '''
 
+    # Set MySQL password and disable password-less access.
+    '''
+    target.run_shell_command('service mysql start')
+    target.run_shell_command('mysql -u root --execute "%s"' % (
+        'use mysql; '
+        'update user set password=PASSWORD(\'5bzc7KahM3AroaG\') where User=\'root\'; '
+        'update mysql.user set plugin=null where user=\'root\'; '
+        'flush privileges;'))
+
+    target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
+
+    target.run_shell_command('service mysql restart')
+    '''
+
     # target.run_shell_command('chgrp www-data /opt/phabricator/webroot')
     # target.run_shell_command('service apache2 restart')
+
+    # Setup MySQL Schema.
+    '''
+    target.run_shell_command('service apache2 stop')
+    target.run_shell_command('/opt/phabricator/bin/phd stop')
+    target.run_shell_command('/opt/phabricator/bin/storage upgrade --force')
+    target.run_shell_command('service apache2 start')
+    '''
+
 
     '''
     target.run_shell_command('service apache2 start')
@@ -224,26 +247,10 @@ def main():
     target.run_shell_command('a2ensite phabricator')
     target.run_shell_command('a2enmod rewrite')
     target.run_shell_command('service apache2 restart')
+    target.run_shell_command('service mysql start')
     '''
-
-    # target.run_shell_command('service mysql stop')
-
-    # Set MySQL password and disable password-less access.
-    '''
-    target.run_shell_command('mysql -u root --execute "%s"' % (
-        'use mysql; '
-        'update user set password=PASSWORD(\'5bzc7KahM3AroaG\') where User=\'root\'; '
-        'update mysql.user set plugin=null where user=\'root\'; '
-        'flush privileges;'))
-    '''
-
-    # target.run_shell_command('service mysql start')
-
-    # target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
 
     target.run_shell_command('ps aux')
-
-    # target.run_shell_command('mysql --execute "list;"')
 
 
 if __name__ == '__main__':
