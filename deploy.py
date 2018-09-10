@@ -53,6 +53,7 @@ class DockerContainerInterface(object):
         self.local_shell = LocalShell(log)
 
     def run(self, command):
+        command = ['docker', 'exec', '-it', self.container_name] + command
         return self.local_shell.run(command)
 
 
