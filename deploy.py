@@ -164,6 +164,7 @@ def main():
         ['apache2',
          'libapache2-mod-php'],
         target)
+    '''
     aptget_install(
         ['git',
          'php',
@@ -174,9 +175,13 @@ def main():
          'php-cli',
          'php-json',
          'php-mbstring',
-         'python-pygments'],
+         'python-pygments',
+         'mercurial',
+         'subversion',
+         # 'sendmail',
+         'imagemagick'],
         target)
-
+    '''
     phabricator_components = [
         'libphutil',
         'arcanist',
