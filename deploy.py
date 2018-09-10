@@ -173,7 +173,8 @@ def main():
          'php-apcu',
          'php-cli',
          'php-json',
-         'php-mbstring'],
+         'php-mbstring',
+         'python-pygments'],
         target)
 
     phabricator_components = [
@@ -241,12 +242,10 @@ def main():
     target.run_shell_command(
         r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
     target.run_shell_command('service apache2 restart')
-    '''
 
     # Enable Pygments.
     target.run_shell_command('/opt/phabricator/bin/config set pygments.enabled true')
-
-
+    '''
 
     '''
     target.run_shell_command('service apache2 start')
