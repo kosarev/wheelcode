@@ -2,16 +2,18 @@
 
 
 import subprocess
+import sys
 
 
 # A customizable logger.
 class Logger(object):
     def __call__(self, message):
         if message:
-            print(message)
+            sys.stdout.write(message)
+            sys.stdout.flush()
 
     def log_stdin(self, input):
-        self('$ ' + input)
+        self('$ %s\n' % input)
 
     def log_stdout(self, output):
         self(output)
@@ -28,21 +30,31 @@ class LocalShell(object):
     def run(self, command):
         self.log.log_stdin(' '.join(command))
         process = subprocess.Popen(command,
+                                   bufsize=1,
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE)
 
-        stdout, stderr = process.communicate()
+        stdout = []
+        while process.poll() is None:
+            while True:
+                chunk = process.stdout.read(1).decode('utf-8')
+                if not chunk:
+                    break
 
-        stdout = stdout.decode('utf-8')
-        stderr = stderr.decode('utf-8')
+                self.log.log_stdout(chunk)
+                stdout.append(chunk)
 
-        self.log.log_stdout(stdout)
-        self.log.log_stderr(stderr)
+            while True:
+                chunk = process.stderr.read(1).decode('utf-8')
+                if not chunk:
+                    break
+
+                self.log.log_stderr(chunk)
 
         assert process.returncode == 0, (
             'Shell command returned %d.' % process.returncode)
 
-        return stdout
+        return ''.join(stdout)
 
 
 # Provides access to a Docker container.
@@ -76,6 +88,7 @@ class Target(object):
 def main():
     log = Logger()
     iface = DockerContainerInterface('phabricator', log)
+
     target = Target(iface)
     target.apt_update()
     target.apt_upgrade()
