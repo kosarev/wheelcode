@@ -247,6 +247,11 @@ def main():
     target.run_shell_command('/opt/phabricator/bin/config set pygments.enabled true')
     '''
 
+    # Configure 'post_max_size'.
+    target.run_shell_command(
+        r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
+    target.run_shell_command('service apache2 restart')
+
     '''
     target.run_shell_command('service apache2 start')
     target.run_shell_command('a2dissite 000-default')
@@ -254,9 +259,8 @@ def main():
     target.run_shell_command('a2enmod rewrite')
     target.run_shell_command('service apache2 restart')
     target.run_shell_command('service mysql start')
-    '''
-
     target.run_shell_command('/opt/phabricator/bin/phd start')
+    '''
 
     target.run_shell_command('ps aux')
 
