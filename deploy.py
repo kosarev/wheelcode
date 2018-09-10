@@ -95,17 +95,29 @@ class Target(object):
             self._completed_actions.add(action_id)
 
 
-def apt_update(target):
-    target.run(['apt', 'update'], 'apt_update')
+def aptget_update(target):
+    target.run(
+        ['DEBIAN_FRONTEND=noninteractive',
+         'apt-get', 'update'],
+        'apt_update')
 
 
-def apt_upgrade(target):
-    target.run(['apt', 'upgrade', '-y'], 'apt_upgrade')
+def aptget_upgrade(target):
+    target.run(
+        ['DEBIAN_FRONTEND=noninteractive',
+         'apt-get', 'upgrade', '--yes'],
+        'apt_upgrade')
 
 
-def apt_update_upgrade(target):
-    apt_update(target)
-    apt_upgrade(target)
+def aptget_update_upgrade(target):
+    aptget_update(target)
+    aptget_upgrade(target)
+
+
+def aptget_install(packages, target):
+    target.run(
+        ['DEBIAN_FRONTEND=noninteractive',
+         'apt-get', 'install', '--yes'] + packages)
 
 
 def main():
@@ -113,11 +125,33 @@ def main():
     iface = DockerContainerInterface('phabricator', log)
     target = Target(iface)
 
-    # apt_update_upgrade(target)
-    # target.run(['su', '-'])
-    # target.run(['cd', '/root', '&&', 'pwd'])
-    # target.run(['cat', '/etc/issue'])
-    target.run('sudo ls')
+    aptget_update_upgrade(target)
+
+    # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
+    aptget_install(
+        ['mariadb-server'],
+        target)
+    aptget_install(
+        ['apache2',
+         'libapache2-mod-php'],
+        target)
+    aptget_install(
+        ['git',
+         'php',
+         'php-mysql',
+         'php-gd',
+         'php-curl',
+         'php-apcu',
+         'php-cli',
+         'php-json',
+         'php-mbstring'],
+        target)
+
+    # target.run('service mysql start')
+
+    target.run('ps aux')
+
+    # target.run('mysql --execute "list;"')
 
 
 if __name__ == '__main__':
