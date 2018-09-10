@@ -294,6 +294,10 @@ max_allowed_packet = 33554432
     target.run_shell_command('mkdir -p /opt/repos')
     target.run_shell_command('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
 
+    target.run_shell_command('mkdir -p /opt/files')
+    target.run_shell_command('chown -R www-data:www-data /opt/files')
+    target.run_shell_command('/opt/phabricator/bin/config set storage.local-disk.path /opt/files')
+
     target.run_shell_command('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
 
     target.run_shell_command('service mysql restart')
