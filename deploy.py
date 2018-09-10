@@ -250,10 +250,15 @@ def main():
     target.run_shell_command(
         r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
     target.run_shell_command('service apache2 restart')
-    '''
 
     # Configure base URI.
     target.run_shell_command('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
+    '''
+
+    # Configure 'max_allowed_packet'.
+    target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+        'SET GLOBAL max_allowed_packet=33554432;'))
+    target.run_shell_command('service mysql restart')
 
     '''
     target.run_shell_command('service apache2 start')
