@@ -4,7 +4,7 @@
 import subprocess
 
 
-# A configurable logger.
+# A customizable logger.
 class Logger(object):
     def __call__(self, message):
         if message:
@@ -57,10 +57,28 @@ class DockerContainerInterface(object):
         return self.local_shell.run(command)
 
 
+# Implements basic target operations.
+class Target(object):
+    def __init__(self, iface):
+        self.iface = iface
+
+    # Executes a shell command.
+    def run(self, command):
+        return self.iface.run(command)
+
+    def apt_update(self):
+        return self.run(['apt', 'update'])
+
+    def apt_upgrade(self):
+        return self.run(['apt', 'upgrade', '-y'])
+
+
 def main():
     log = Logger()
-    target = DockerContainerInterface('phabricator', log)
-    target.run(['ls'])
+    iface = DockerContainerInterface('phabricator', log)
+    target = Target(iface)
+    target.apt_update()
+    target.apt_upgrade()
 
 
 if __name__ == '__main__':
