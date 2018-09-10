@@ -72,26 +72,42 @@ class DockerContainerInterface(object):
 # Implements basic target operations.
 class Target(object):
     def __init__(self, iface):
-        self.iface = iface
+        self._iface = iface
+        self._completed_actions = set()
 
     # Executes a shell command.
-    def run(self, command):
-        return self.iface.run(command)
+    def run(self, command, action_id=None):
+        # Do not perform actions that have already been marked as
+        # completed.
+        if action_id and action_id in self._completed_actions:
+            return
 
-    def apt_update(self):
-        return self.run(['apt', 'update'])
+        self._iface.run(command)
 
-    def apt_upgrade(self):
-        return self.run(['apt', 'upgrade', '-y'])
+        if action_id:
+            self._completed_actions.add(action_id)
+
+
+def apt_update(target):
+    target.run(['apt', 'update'], 'apt_update')
+
+
+def apt_upgrade(target):
+    target.run(['apt', 'upgrade', '-y'], 'apt_upgrade')
+
+
+def apt_update_upgrade(target):
+    apt_update(target)
+    apt_upgrade(target)
 
 
 def main():
     log = Logger()
     iface = DockerContainerInterface('phabricator', log)
-
     target = Target(iface)
-    target.apt_update()
-    target.apt_upgrade()
+
+    apt_update_upgrade(target)
+    apt_update_upgrade(target)
 
 
 if __name__ == '__main__':
