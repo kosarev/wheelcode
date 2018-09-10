@@ -243,6 +243,9 @@ def main():
     target.run_shell_command('service apache2 restart')
     '''
 
+    # Enable Pygments.
+    target.run_shell_command('/opt/phabricator/bin/config set pygments.enabled true')
+
 
 
     '''
