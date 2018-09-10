@@ -28,6 +28,9 @@ class LocalShell(object):
         self.log = log
 
     def run(self, command):
+        if not isinstance(command, list):
+            command = command.split()
+
         self.log.log_stdin(' '.join(command))
         process = subprocess.Popen(command,
                                    bufsize=1,
@@ -65,6 +68,9 @@ class DockerContainerInterface(object):
         self.local_shell = LocalShell(log)
 
     def run(self, command):
+        if not isinstance(command, list):
+            command = command.split()
+
         command = ['docker', 'exec', '-it', self.container_name,
                    'sh', '-c', '%s' % ' '.join(command)]
         return self.local_shell.run(command)
@@ -109,7 +115,9 @@ def main():
 
     # apt_update_upgrade(target)
     # target.run(['su', '-'])
-    target.run(['cd', '/root', '&&', 'pwd'])
+    # target.run(['cd', '/root', '&&', 'pwd'])
+    # target.run(['cat', '/etc/issue'])
+    target.run('sudo ls')
 
 
 if __name__ == '__main__':
