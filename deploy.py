@@ -215,16 +215,6 @@ def main():
 """)
     target.run_shell_command('service mysql restart')
 
-    # Set MySQL password and disable password-less access.
-    target.run_shell_command('service mysql start')
-    # TODO: 'update mysql.user set plugin=null where user=\'root\'; '
-    '''
-    target.run_shell_command('mysql -u root --execute "%s"' % (
-        'use mysql; '
-        'update user set password=PASSWORD(\'5bzc7KahM3AroaG\') where User=\'root\'; '
-        'flush privileges;'))
-    '''
-
     # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
     # Create Phabricator MySQL user $PH_MYSQL_USER.
     # Grant usage rights on phabricator_* to Phabricator MySQL user $PH_MYSQL_USER.
@@ -279,7 +269,6 @@ def main():
     # target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
     #     'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
     # target.run_shell_command('service mysql restart')
-    '''
 
     # Configure 'innodb_buffer_pool_size'.
     target.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
@@ -300,6 +289,11 @@ innodb_buffer_pool_size = 1600M
 
 max_allowed_packet = 33554432
 """)
+    '''
+
+    target.run_shell_command('mkdir -p /opt/repos')
+    target.run_shell_command('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
+
     target.run_shell_command('service mysql restart')
     target.run_shell_command('/opt/phabricator/bin/phd restart')
     target.run_shell_command('service apache2 restart')
