@@ -294,6 +294,8 @@ max_allowed_packet = 33554432
     target.run_shell_command('mkdir -p /opt/repos')
     target.run_shell_command('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
 
+    target.run_shell_command('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
+
     target.run_shell_command('service mysql restart')
     target.run_shell_command('/opt/phabricator/bin/phd restart')
     target.run_shell_command('service apache2 restart')
