@@ -253,11 +253,16 @@ def main():
 
     # Configure base URI.
     target.run_shell_command('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
-    '''
 
     # Configure 'max_allowed_packet'.
     target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
         'SET GLOBAL max_allowed_packet=33554432;'))
+    target.run_shell_command('service mysql restart')
+    '''
+
+    # Set MySQL STRICT_ALL_TABLES mode.
+    target.run_shell_command('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+        'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
     target.run_shell_command('service mysql restart')
 
     '''
