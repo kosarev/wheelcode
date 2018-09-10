@@ -204,7 +204,6 @@ def main():
   # Make sure you include "/webroot" at the end!
   DocumentRoot /opt/phabricator/webroot
 
-
   RewriteEngine on
   RewriteRule ^(.*)$          /index.php?__path__=$1  [B,L,QSA]
 </VirtualHost>
@@ -213,6 +212,7 @@ def main():
     Require all granted
 </Directory>
 """)
+    target.run_shell_command('service mysql restart')
     '''
 
     # Set MySQL password and disable password-less access.
@@ -227,6 +227,13 @@ def main():
     target.run_shell_command('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
 
     target.run_shell_command('service mysql restart')
+    '''
+
+    # Configure server timezone.
+    '''
+    target.run_shell_command(
+        r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Europe/London'# }" /etc/php/7.2/apache2/php.ini""")
+    target.run_shell_command('service apache2 restart')
     '''
 
     # target.run_shell_command('chgrp www-data /opt/phabricator/webroot')
