@@ -256,6 +256,8 @@ def main():
     target.run_shell_command('service mysql start')
     '''
 
+    target.run_shell_command('/opt/phabricator/bin/phd start')
+
     target.run_shell_command('ps aux')
 
 
