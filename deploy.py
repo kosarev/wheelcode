@@ -196,12 +196,11 @@ class Phabricator(object):
         self.shell.run('/opt/phabricator/bin/config set %s %s' % (id, value))
 
     def install(self):
-        '''
         self.system.update_upgrade()
 
         self.mysql.install()
 
-        # Create the Phabricator MySQL user.
+        self.log('Create the Phabricator MySQL user.')
         # https://coderwall.com/p/ne1thg/phabricator-mysql-permissions
         self.mysql.add_user(
             user=self.mysql_user, password=self.mysql_password,
@@ -264,7 +263,6 @@ class Phabricator(object):
     Require all granted
 </Directory>
 """)
-        '''
 
         self._config_set('mysql.user', self.mysql_user)
         self._config_set('mysql.pass', self.mysql_password)
@@ -276,17 +274,10 @@ class Phabricator(object):
 
         # Setup MySQL Schema.
         self.shell.run('service apache2 stop')
-        self.shell.run('/opt/phabricator/bin/phd stop')
+        self.stop()
 
+        # TODO: Have a password for the root MySQL user.
         self.shell.run('/opt/phabricator/bin/storage upgrade --force --user root')
-
-        '''
----
-    dbg "Executing Phabricator's storage upgrade"
-    p=$(sed -nr '/^password/{s/password = //p}' ~/.my.cnf)
-    runas_phab ${PH_ROOT}/phabricator/bin/storage upgrade --force --user root --password ${p}
----
-        '''
 
         self.shell.run('service apache2 start')
 
@@ -295,29 +286,16 @@ class Phabricator(object):
             r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
         self.shell.run('service apache2 restart')
 
-        # Enable Pygments.
-        self.shell.run('/opt/phabricator/bin/config set pygments.enabled true')
+        self.log('Enable Pygments.')
+        self._config_set('pygments.enabled', 'true')
 
         # Configure 'post_max_size'.
         self.shell.run(
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
         self.shell.run('service apache2 restart')
 
-        # Configure base URI.
-        self.shell.run('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
-
-        # TODO: Remove.
-        ## Configure 'max_allowed_packet'.
-        #self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-        #    'SET GLOBAL max_allowed_packet=33554432;'))
-        #self.shell.run('service mysql restart')
-
-        # TODO: Remove.
-        # Set MySQL STRICT_ALL_TABLES mode.
-        # TODO: We do this in the config file.
-        # self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-        #     'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
-        # self.shell.run('service mysql restart')
+        self.log('Configure base URI.')
+        self._config_set('phabricator.base-uri', "'http://172.19.0.5/'")
 
         # Configure 'innodb_buffer_pool_size'.
         self.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
@@ -344,12 +322,13 @@ max_allowed_packet = 33554432
 
         self.shell.run('mkdir -p /opt/files')
         self.shell.run('chown -R www-data:www-data /opt/files')
-        self.shell.run('/opt/phabricator/bin/config set storage.local-disk.path /opt/files')
+        self._config_set('storage.local-disk.path', '/opt/files')
 
-        self.shell.run('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
+        self._config_set('metamta.mail-adapter',
+                         'PhabricatorMailImplementationPHPMailerAdapter')
 
         self.mysql.restart()
-        self.shell.run('/opt/phabricator/bin/phd restart')
+        self.restart()
         self.shell.run('service apache2 restart')
         # '''
 
@@ -360,10 +339,19 @@ max_allowed_packet = 33554432
         self.shell.run('a2enmod rewrite')
         self.shell.run('service apache2 restart')
         self.mysql.restart()
-        self.shell.run('/opt/phabricator/bin/phd restart')
+        self.restart()
         # '''
 
         self.shell.run('ps aux')
+
+    def _manage(self, action):
+        self.shell.run(['/opt/phabricator/bin/phd', action])
+
+    def restart(self):
+        self._manage('restart')
+
+    def stop(self):
+        self._manage('stop')
 
 
 def main():
