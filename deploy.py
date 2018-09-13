@@ -150,11 +150,16 @@ class MariaDB(object):
         self.shell = system.shell
         self.log = system.log
 
+        self._started = False
+
     def install(self):
         self.system.update_upgrade()
         self.system.install_packages(['mariadb-server'])
 
     def _execute(self, commands, may_fail=False):
+        # We need the daemon to be started.
+        self.start()
+
         self.shell.run(
             command='mysql -u root --execute "%s"' % commands,
             may_fail=may_fail)
@@ -179,8 +184,14 @@ class MariaDB(object):
     def _manage(self, action):
         self.system._manage_service('mysql', action)
 
+    def start(self):
+        if not self._started:
+            self._manage('start')
+            self._started = True
+
     def restart(self):
         self._manage('restart')
+        self._started = True
 
 
 class Phabricator(object):
@@ -250,7 +261,7 @@ class Phabricator(object):
                 self.shell.run(
                     'cd %s && '
                     'git clone https://github.com/phacility/%s.git' % (
-                        dir. component_name))
+                        dir, component_name))
             else:
                 self.shell.run(
                     'cd %s && '
