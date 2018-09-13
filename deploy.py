@@ -229,7 +229,7 @@ class Phabricator(object):
 
         # Configure server timezone.
         self.shell.run(
-            r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Europe/London'# }" /etc/php/7.2/apache2/php.ini""")
+            r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
         self.shell.run('service apache2 restart')
 
         # Setup MySQL Schema.
