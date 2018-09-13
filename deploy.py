@@ -208,6 +208,10 @@ class Phabricator(object):
         config_path = posixpath.join(self._phabricator_path, 'bin', 'config')
         self.shell.run([config_path, 'set', id, value])
 
+    def _storage(self, args):
+        storage_path = posixpath.join(self._phabricator_path, 'bin', 'storage')
+        self.shell.run([storage_path] + args)
+
     def install(self):
         self.system.update_upgrade()
 
@@ -239,10 +243,6 @@ class Phabricator(object):
              'subversion',
              # 'sendmail',  # TODO: Do we need it?
              'imagemagick'])
-
-        self._phabricator_path = posixpath.join(self._base_path, 'phabricator')
-        self._arcanist_path = posixpath.join(self._base_path, 'arcanist')
-        self._libphutil_path = posixpath.join(self._base_path, 'libphutil')
 
         for component_name, path in self._components:
             dir = posixpath.dirname(path)
@@ -290,7 +290,7 @@ class Phabricator(object):
         self.stop()
 
         # TODO: Have a password for the root MySQL user.
-        self.shell.run('/opt/phabricator/bin/storage upgrade --force --user root')
+        self._storage(['upgrade', '--force', '--user', 'root'])
 
         self.shell.run('service apache2 start')
 
@@ -331,7 +331,7 @@ max_allowed_packet = 33554432
 """)
 
         self.shell.run('mkdir -p /opt/repos')
-        self.shell.run('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
+        self._config_set('repository.default-local-path', '/opt/repos')
 
         self.shell.run('mkdir -p /opt/files')
         self.shell.run('chown -R www-data:www-data /opt/files')
@@ -358,7 +358,8 @@ max_allowed_packet = 33554432
         self.shell.run('ps aux')
 
     def _manage(self, action):
-        self.shell.run(['/opt/phabricator/bin/phd', action])
+        phd_path = posixpath.join(self._phabricator_path, 'bin', 'phd')
+        self.shell.run([phd_path, action])
 
     def restart(self):
         self._manage('restart')
