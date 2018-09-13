@@ -12,6 +12,13 @@ class Error(Exception):
         super().__init__(message)
 
 
+# Makes sure all arguments passed are identical.
+def _identical(*args):
+    if len(set(args)) > 1:
+        raise Error('These objects are required to be identical: %s' % repr(args))
+    return args[0]
+
+
 # A customizable logger.
 class Logger(object):
     def _write(self, stream, output):
@@ -194,10 +201,25 @@ class MariaDB(object):
         self._started = True
 
 
+class Apache2(object):
+    def __init__(self, system):
+        self.system = system
+        self.shell = system.shell
+        self.log = system.log
+
+    def install(self):
+        self.system.update_upgrade()
+        self.system.install_packages(
+            ['apache2',
+             'libapache2-mod-php',  # TODO: Not all setups need this.
+            ])
+
+
 class Phabricator(object):
-    def __init__(self, mysql):
+    def __init__(self, mysql, webserver):
         self.mysql = mysql
-        self.system = self.mysql.system
+        self.webserver = webserver
+        self.system = _identical(self.mysql.system, self.webserver.system)
         self.shell = self.system.shell
         self.log = self.mysql.log
 
@@ -235,10 +257,10 @@ class Phabricator(object):
             privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
             objects='\`phabricator\_%\`.*')
 
+        self.webserver.install()
+
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
-        self.system.install_packages(
-            ['apache2',
-             'libapache2-mod-php'])
+        # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
         self.system.install_packages(
             ['git',
              'php',
@@ -385,8 +407,9 @@ def main():
                                         shell=local_shell)
     system = Ubuntu(docker_shell)
     mysql = MariaDB(system)
-    phab = Phabricator(mysql)
-
+    webserver = Apache2(system)
+    phab = Phabricator(mysql=mysql,
+                       webserver=webserver)
 
     phab.install()
 
