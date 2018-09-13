@@ -140,19 +140,49 @@ class Ubuntu(object):
         self._apt_get(['install', '--yes'] + packages)
 
 
-class Phabricator(object):
+class MariaDB(object):
     def __init__(self, system):
         self.system = system
         self.shell = system.shell
         self.log = system.log
 
     def install(self):
-        # '''
+        self.system.update_upgrade()
+        self.system.install_packages(['mariadb-server'])
+
+    def add_user(self, user, password, privileges, objects):
+        # Drop existing user with the same name, if any.
+        # TODO: How can we make sure the failure (if any) is due
+        # to non-existing user?
+        self.shell.run('mysql -u root --execute "%s"' % (
+            """DROP USER 'phab'@'localhost'; """),
+            may_fail=True)
+
+        # Create new user and grant specified privileges.
+        self.shell.run('mysql -u root --execute "%s"' % (
+            """CREATE USER '{user}'@'localhost' IDENTIFIED BY '{password}'; """
+            """GRANT {privileges} ON {objects} TO '{user}'@'localhost';""".format(
+                user=user,
+                password=password,
+                privileges=privileges,
+                objects=objects)))
+        # self.shell.run('service mysql restart')
+
+
+class Phabricator(object):
+    def __init__(self, mysql):
+        self.mysql = mysql
+        self.system = self.mysql.system
+        self.shell = self.system.shell
+        self.log = self.mysql.log
+
+    def install(self):
+        '''
         self.system.update_upgrade()
 
+        self.mysql.install()
+
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
-        self.system.install_packages(
-            ['mariadb-server'])
         self.system.install_packages(
             ['apache2',
              'libapache2-mod-php'])
@@ -208,21 +238,14 @@ class Phabricator(object):
     Require all granted
 </Directory>
 """)
-        self.shell.run('service mysql restart')
-        # '''
+        '''
 
-        # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
-        # Create Phabricator MySQL user $PH_MYSQL_USER.
-        # Grant usage rights on phabricator_* to Phabricator MySQL user $PH_MYSQL_USER.
-        # (https://coderwall.com/p/ne1thg/phabricator-mysql-permissions)
-        self.shell.run('mysql -u root --execute "%s"' % (
-            """DROP USER 'phab'@'localhost'; """),
-            may_fail=True)
-
-        self.shell.run('mysql -u root --execute "%s"' % (
-            """CREATE USER 'phab'@'localhost' IDENTIFIED BY '5bzc7KahM3AroaG'; """
-            """GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW ON \`phabricator\_%\`.* TO 'phab'@'localhost';"""))
-        # self.shell.run('service mysql restart')
+        # Create the Phabricator MySQL user.
+        # https://coderwall.com/p/ne1thg/phabricator-mysql-permissions
+        self.mysql.add_user(
+            user='phab', password='5bzc7KahM3AroaG',
+            privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
+            objects='\`phabricator\_%\`.*')
 
         self.shell.run('/opt/phabricator/bin/config set mysql.user phab')
         self.shell.run('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
@@ -327,7 +350,9 @@ def main():
     docker_shell = DockerContainerShell(container_name='phabricator',
                                         shell=local_shell)
     system = Ubuntu(docker_shell)
-    phab = Phabricator(system)
+    mysql = MariaDB(system)
+    phab = Phabricator(mysql)
+
 
     phab.install()
 
