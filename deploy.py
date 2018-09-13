@@ -150,23 +150,27 @@ class MariaDB(object):
         self.system.update_upgrade()
         self.system.install_packages(['mariadb-server'])
 
+    def _execute(self, commands, may_fail=False):
+        self.shell.run(
+            command='mysql -u root --execute "%s"' % commands,
+            may_fail=may_fail)
+
     def add_user(self, user, password, privileges, objects):
         # Drop existing user with the same name, if any.
         # TODO: How can we make sure the failure (if any) is due
         # to non-existing user?
-        self.shell.run('mysql -u root --execute "%s"' % (
-            """DROP USER 'phab'@'localhost'; """),
-            may_fail=True)
+        self._execute("DROP USER '{user}'@'localhost'; ".format(
+                          user=user),
+                      may_fail=True)
 
         # Create new user and grant specified privileges.
-        self.shell.run('mysql -u root --execute "%s"' % (
-            """CREATE USER '{user}'@'localhost' IDENTIFIED BY '{password}'; """
-            """GRANT {privileges} ON {objects} TO '{user}'@'localhost';""".format(
+        self._execute(
+            "CREATE USER '{user}'@'localhost' IDENTIFIED BY '{password}'; "
+            "GRANT {privileges} ON {objects} TO '{user}'@'localhost';".format(
                 user=user,
                 password=password,
                 privileges=privileges,
-                objects=objects)))
-        # self.shell.run('service mysql restart')
+                objects=objects))
 
 
 class Phabricator(object):
