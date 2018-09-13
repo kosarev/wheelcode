@@ -139,6 +139,9 @@ class Ubuntu(object):
         #       again.
         self._apt_get(['install', '--yes'] + packages)
 
+    def _manage_service(self, service, action):
+        self.shell.run(['service', service, action])
+
 
 class MariaDB(object):
     def __init__(self, system):
@@ -172,6 +175,12 @@ class MariaDB(object):
                 privileges=privileges,
                 objects=objects))
 
+    def _manage(self, action):
+        self.system._manage_service('mysql', action)
+
+    def restart(self):
+        self._manage('restart')
+
 
 class Phabricator(object):
     def __init__(self, mysql):
@@ -180,11 +189,24 @@ class Phabricator(object):
         self.shell = self.system.shell
         self.log = self.mysql.log
 
+        self.mysql_user = 'phab'
+        self.mysql_password = '5bzc7KahM3AroaG'
+
+    def _config_set(self, id, value):
+        self.shell.run('/opt/phabricator/bin/config set %s %s' % (id, value))
+
     def install(self):
         '''
         self.system.update_upgrade()
 
         self.mysql.install()
+
+        # Create the Phabricator MySQL user.
+        # https://coderwall.com/p/ne1thg/phabricator-mysql-permissions
+        self.mysql.add_user(
+            user=self.mysql_user, password=self.mysql_password,
+            privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
+            objects='\`phabricator\_%\`.*')
 
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
         self.system.install_packages(
@@ -244,15 +266,8 @@ class Phabricator(object):
 """)
         '''
 
-        # Create the Phabricator MySQL user.
-        # https://coderwall.com/p/ne1thg/phabricator-mysql-permissions
-        self.mysql.add_user(
-            user='phab', password='5bzc7KahM3AroaG',
-            privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
-            objects='\`phabricator\_%\`.*')
-
-        self.shell.run('/opt/phabricator/bin/config set mysql.user phab')
-        self.shell.run('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
+        self._config_set('mysql.user', self.mysql_user)
+        self._config_set('mysql.pass', self.mysql_password)
 
         # Configure server timezone.
         self.shell.run(
@@ -291,11 +306,13 @@ class Phabricator(object):
         # Configure base URI.
         self.shell.run('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
 
-        # Configure 'max_allowed_packet'.
-        self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-            'SET GLOBAL max_allowed_packet=33554432;'))
-        self.shell.run('service mysql restart')
+        # TODO: Remove.
+        ## Configure 'max_allowed_packet'.
+        #self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+        #    'SET GLOBAL max_allowed_packet=33554432;'))
+        #self.shell.run('service mysql restart')
 
+        # TODO: Remove.
         # Set MySQL STRICT_ALL_TABLES mode.
         # TODO: We do this in the config file.
         # self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
@@ -331,7 +348,7 @@ max_allowed_packet = 33554432
 
         self.shell.run('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
 
-        self.shell.run('service mysql restart')
+        self.mysql.restart()
         self.shell.run('/opt/phabricator/bin/phd restart')
         self.shell.run('service apache2 restart')
         # '''
@@ -342,7 +359,7 @@ max_allowed_packet = 33554432
         self.shell.run('a2ensite phabricator')
         self.shell.run('a2enmod rewrite')
         self.shell.run('service apache2 restart')
-        self.shell.run('service mysql restart')
+        self.mysql.restart()
         self.shell.run('/opt/phabricator/bin/phd restart')
         # '''
 
