@@ -117,6 +117,7 @@ class DockerContainerShell(object):
 class Ubuntu(object):
     def __init__(self, shell):
         self.shell = shell
+        self.log = shell.log
 
     def _apt_get(self, args):
         self.shell.run(['DEBIAN_FRONTEND=noninteractive', 'apt-get'] + args)
@@ -139,54 +140,56 @@ class Ubuntu(object):
         self._apt_get(['install', '--yes'] + packages)
 
 
-def main():
-    shell = DockerContainerShell(container_name='phabricator',
-                                 shell=LocalShell(Logger()))
-    target = Ubuntu(shell)
+class Phabricator(object):
+    def __init__(self, system):
+        self.system = system
+        self.shell = system.shell
+        self.log = system.log
 
-    # '''
-    target.update_upgrade()
+    def install(self):
+        # '''
+        self.system.update_upgrade()
 
-    # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
-    target.install_packages(
-        ['mariadb-server'])
-    target.install_packages(
-        ['apache2',
-         'libapache2-mod-php'])
-    target.install_packages(
-        ['git',
-         'php',
-         'php-mysql',
-         'php-gd',
-         'php-curl',
-         'php-apcu',
-         'php-cli',
-         'php-json',
-         'php-mbstring',
-         'python-pygments',
-         'mercurial',
-         'subversion',
-         # 'sendmail',  # TODO: Do we need it?
-         'imagemagick'])
+        # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
+        self.system.install_packages(
+            ['mariadb-server'])
+        self.system.install_packages(
+            ['apache2',
+             'libapache2-mod-php'])
+        self.system.install_packages(
+            ['git',
+             'php',
+             'php-mysql',
+             'php-gd',
+             'php-curl',
+             'php-apcu',
+             'php-cli',
+             'php-json',
+             'php-mbstring',
+             'python-pygments',
+             'mercurial',
+             'subversion',
+             # 'sendmail',  # TODO: Do we need it?
+             'imagemagick'])
 
-    phabricator_components = [
-        'libphutil',
-        'arcanist',
-        'phabricator',
-    ]
+        phabricator_components = [
+            'libphutil',
+            'arcanist',
+            'phabricator',
+        ]
 
-    for comp in phabricator_components:
-        if not target.shell.does_file_exist('/opt/%s' % comp):
-            target.shell.run(
-                'cd /opt && '
-                'git clone https://github.com/phacility/%s.git' % comp)
-        else:
-            target.shell.run(
-                'cd /opt && '
-                'cd %s && git pull' % comp)
+        for comp in phabricator_components:
+            if not self.shell.does_file_exist('/opt/%s' % comp):
+                self.shell.run(
+                    'cd /opt && '
+                    'git clone https://github.com/phacility/%s.git' % comp)
+            else:
+                self.shell.run(
+                    'cd /opt && '
+                    'cd %s && git pull' % comp)
 
-    target.shell.write_file('/etc/apache2/sites-available/phabricator.conf',
-                            b"""
+        self.shell.write_file('/etc/apache2/sites-available/phabricator.conf',
+                                b"""
 <VirtualHost *>
   # Change this to the domain which points to your host.
   ServerName 172.19.0.5
@@ -205,75 +208,75 @@ def main():
     Require all granted
 </Directory>
 """)
-    target.shell.run('service mysql restart')
-    # '''
+        self.shell.run('service mysql restart')
+        # '''
 
-    # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
-    # Create Phabricator MySQL user $PH_MYSQL_USER.
-    # Grant usage rights on phabricator_* to Phabricator MySQL user $PH_MYSQL_USER.
-    # (https://coderwall.com/p/ne1thg/phabricator-mysql-permissions)
-    target.shell.run('mysql -u root --execute "%s"' % (
-        """DROP USER 'phab'@'localhost'; """),
-        may_fail=True)
+        # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
+        # Create Phabricator MySQL user $PH_MYSQL_USER.
+        # Grant usage rights on phabricator_* to Phabricator MySQL user $PH_MYSQL_USER.
+        # (https://coderwall.com/p/ne1thg/phabricator-mysql-permissions)
+        self.shell.run('mysql -u root --execute "%s"' % (
+            """DROP USER 'phab'@'localhost'; """),
+            may_fail=True)
 
-    target.shell.run('mysql -u root --execute "%s"' % (
-        """CREATE USER 'phab'@'localhost' IDENTIFIED BY '5bzc7KahM3AroaG'; """
-        """GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW ON \`phabricator\_%\`.* TO 'phab'@'localhost';"""))
-    # target.shell.run('service mysql restart')
+        self.shell.run('mysql -u root --execute "%s"' % (
+            """CREATE USER 'phab'@'localhost' IDENTIFIED BY '5bzc7KahM3AroaG'; """
+            """GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW ON \`phabricator\_%\`.* TO 'phab'@'localhost';"""))
+        # self.shell.run('service mysql restart')
 
-    target.shell.run('/opt/phabricator/bin/config set mysql.user phab')
-    target.shell.run('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
+        self.shell.run('/opt/phabricator/bin/config set mysql.user phab')
+        self.shell.run('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
 
-    # Configure server timezone.
-    target.shell.run(
-        r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Europe/London'# }" /etc/php/7.2/apache2/php.ini""")
-    target.shell.run('service apache2 restart')
+        # Configure server timezone.
+        self.shell.run(
+            r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Europe/London'# }" /etc/php/7.2/apache2/php.ini""")
+        self.shell.run('service apache2 restart')
 
-    # Setup MySQL Schema.
-    target.shell.run('service apache2 stop')
-    target.shell.run('/opt/phabricator/bin/phd stop')
+        # Setup MySQL Schema.
+        self.shell.run('service apache2 stop')
+        self.shell.run('/opt/phabricator/bin/phd stop')
 
-    target.shell.run('/opt/phabricator/bin/storage upgrade --force --user root')
+        self.shell.run('/opt/phabricator/bin/storage upgrade --force --user root')
 
-    '''
+        '''
 ---
     dbg "Executing Phabricator's storage upgrade"
     p=$(sed -nr '/^password/{s/password = //p}' ~/.my.cnf)
     runas_phab ${PH_ROOT}/phabricator/bin/storage upgrade --force --user root --password ${p}
 ---
-    '''
+        '''
 
-    target.shell.run('service apache2 start')
+        self.shell.run('service apache2 start')
 
-    # OPcache should be configured to never revalidate code.
-    target.shell.run(
-        r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
-    target.shell.run('service apache2 restart')
+        # OPcache should be configured to never revalidate code.
+        self.shell.run(
+            r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
+        self.shell.run('service apache2 restart')
 
-    # Enable Pygments.
-    target.shell.run('/opt/phabricator/bin/config set pygments.enabled true')
+        # Enable Pygments.
+        self.shell.run('/opt/phabricator/bin/config set pygments.enabled true')
 
-    # Configure 'post_max_size'.
-    target.shell.run(
-        r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
-    target.shell.run('service apache2 restart')
+        # Configure 'post_max_size'.
+        self.shell.run(
+            r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
+        self.shell.run('service apache2 restart')
 
-    # Configure base URI.
-    target.shell.run('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
+        # Configure base URI.
+        self.shell.run('/opt/phabricator/bin/config set phabricator.base-uri \'http://172.19.0.5/\'')
 
-    # Configure 'max_allowed_packet'.
-    target.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-        'SET GLOBAL max_allowed_packet=33554432;'))
-    target.shell.run('service mysql restart')
+        # Configure 'max_allowed_packet'.
+        self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+            'SET GLOBAL max_allowed_packet=33554432;'))
+        self.shell.run('service mysql restart')
 
-    # Set MySQL STRICT_ALL_TABLES mode.
-    # TODO: We do this in the config file.
-    # target.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
-    #     'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
-    # target.shell.run('service mysql restart')
+        # Set MySQL STRICT_ALL_TABLES mode.
+        # TODO: We do this in the config file.
+        # self.shell.run('mysql -u root -p5bzc7KahM3AroaG --execute "%s"' % (
+        #     'SET GLOBAL sql_mode=STRICT_ALL_TABLES;'))
+        # self.shell.run('service mysql restart')
 
-    # Configure 'innodb_buffer_pool_size'.
-    target.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
+        # Configure 'innodb_buffer_pool_size'.
+        self.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
                             b"""
 # Phabricator recommendations for MySQL.
 
@@ -292,31 +295,41 @@ innodb_buffer_pool_size = 1600M
 max_allowed_packet = 33554432
 """)
 
-    target.shell.run('mkdir -p /opt/repos')
-    target.shell.run('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
+        self.shell.run('mkdir -p /opt/repos')
+        self.shell.run('/opt/phabricator/bin/config set repository.default-local-path /opt/repos')
 
-    target.shell.run('mkdir -p /opt/files')
-    target.shell.run('chown -R www-data:www-data /opt/files')
-    target.shell.run('/opt/phabricator/bin/config set storage.local-disk.path /opt/files')
+        self.shell.run('mkdir -p /opt/files')
+        self.shell.run('chown -R www-data:www-data /opt/files')
+        self.shell.run('/opt/phabricator/bin/config set storage.local-disk.path /opt/files')
 
-    target.shell.run('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
+        self.shell.run('/opt/phabricator/bin/config set metamta.mail-adapter PhabricatorMailImplementationPHPMailerAdapter')
 
-    target.shell.run('service mysql restart')
-    target.shell.run('/opt/phabricator/bin/phd restart')
-    target.shell.run('service apache2 restart')
-    # '''
+        self.shell.run('service mysql restart')
+        self.shell.run('/opt/phabricator/bin/phd restart')
+        self.shell.run('service apache2 restart')
+        # '''
 
-    # '''
-    target.shell.run('service apache2 start')
-    target.shell.run('a2dissite 000-default')
-    target.shell.run('a2ensite phabricator')
-    target.shell.run('a2enmod rewrite')
-    target.shell.run('service apache2 restart')
-    target.shell.run('service mysql restart')
-    target.shell.run('/opt/phabricator/bin/phd restart')
-    # '''
+        # '''
+        self.shell.run('service apache2 start')
+        self.shell.run('a2dissite 000-default')
+        self.shell.run('a2ensite phabricator')
+        self.shell.run('a2enmod rewrite')
+        self.shell.run('service apache2 restart')
+        self.shell.run('service mysql restart')
+        self.shell.run('/opt/phabricator/bin/phd restart')
+        # '''
 
-    target.shell.run('ps aux')
+        self.shell.run('ps aux')
+
+
+def main():
+    local_shell = LocalShell(Logger())
+    docker_shell = DockerContainerShell(container_name='phabricator',
+                                        shell=local_shell)
+    system = Ubuntu(docker_shell)
+    phab = Phabricator(system)
+
+    phab.install()
 
 
 if __name__ == '__main__':
