@@ -341,7 +341,7 @@ class Phabricator(object):
 
         # Setup MySQL Schema.
         self.webserver.stop()
-        self.stop()
+        self._stop_daemon()
 
         # TODO: Have a password for the root MySQL user.
         self._storage(['upgrade', '--force', '--user', 'root'])
@@ -395,7 +395,7 @@ max_allowed_packet = 33554432
                          'PhabricatorMailImplementationPHPMailerAdapter')
 
         self.mysql.restart()
-        self.restart()
+        self._restart_daemon()
         self.webserver.restart()
         # '''
 
@@ -406,20 +406,20 @@ max_allowed_packet = 33554432
         self.shell.run('a2enmod rewrite')
         self.webserver.restart()
         self.mysql.restart()
-        self.restart()
+        self._restart_daemon()
         # '''
 
         self.shell.run('ps aux')
 
-    def _manage(self, action):
+    def _manage_daemon(self, action):
         phd_path = posixpath.join(self._phabricator_path, 'bin', 'phd')
         self.shell.run([phd_path, action])
 
-    def restart(self):
-        self._manage('restart')
+    def _restart_daemon(self):
+        self._manage_daemon('restart')
 
-    def stop(self):
-        self._manage('stop')
+    def _stop_daemon(self):
+        self._manage_daemon('stop')
 
 
 def main():
