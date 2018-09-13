@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 
+import posixpath
 import subprocess
 import sys
 import tempfile
@@ -192,8 +193,20 @@ class Phabricator(object):
         self.mysql_user = 'phab'
         self.mysql_password = '5bzc7KahM3AroaG'
 
+        self._base_path = '/opt'
+        self._phabricator_path = posixpath.join(self._base_path, 'phabricator')
+        self._arcanist_path = posixpath.join(self._base_path, 'arcanist')
+        self._libphutil_path = posixpath.join(self._base_path, 'libphutil')
+
+        self._components = [
+            ('libphutil', self._libphutil_path),
+            ('arcanist', self._arcanist_path),
+            ('phabricator', self._phabricator_path),
+        ]
+
     def _config_set(self, id, value):
-        self.shell.run('/opt/phabricator/bin/config set %s %s' % (id, value))
+        config_path = posixpath.join(self._phabricator_path, 'bin', 'config')
+        self.shell.run([config_path, 'set', id, value])
 
     def install(self):
         self.system.update_upgrade()
@@ -227,21 +240,21 @@ class Phabricator(object):
              # 'sendmail',  # TODO: Do we need it?
              'imagemagick'])
 
-        phabricator_components = [
-            'libphutil',
-            'arcanist',
-            'phabricator',
-        ]
+        self._phabricator_path = posixpath.join(self._base_path, 'phabricator')
+        self._arcanist_path = posixpath.join(self._base_path, 'arcanist')
+        self._libphutil_path = posixpath.join(self._base_path, 'libphutil')
 
-        for comp in phabricator_components:
-            if not self.shell.does_file_exist('/opt/%s' % comp):
+        for component_name, path in self._components:
+            dir = posixpath.dirname(path)
+            if not self.shell.does_file_exist(path):
                 self.shell.run(
-                    'cd /opt && '
-                    'git clone https://github.com/phacility/%s.git' % comp)
+                    'cd %s && '
+                    'git clone https://github.com/phacility/%s.git' % (
+                        dir. component_name))
             else:
                 self.shell.run(
-                    'cd /opt && '
-                    'cd %s && git pull' % comp)
+                    'cd %s && '
+                    'git pull' % path)
 
         self.shell.write_file('/etc/apache2/sites-available/phabricator.conf',
                                 b"""
