@@ -207,12 +207,31 @@ class Apache2(object):
         self.shell = system.shell
         self.log = system.log
 
+        self._started = False
+
     def install(self):
         self.system.update_upgrade()
         self.system.install_packages(
             ['apache2',
              'libapache2-mod-php',  # TODO: Not all setups need this.
             ])
+
+    def _manage(self, action):
+        self.system._manage_service('apache2', action)
+
+    def start(self):
+        if not self._started:
+            self._manage('start')
+            self._started = True
+
+    def restart(self):
+        self._manage('restart')
+        self._started = True
+
+    def stop(self):
+        if self._started:
+            self._manage('stop')
+            self._started = False
 
 
 class Phabricator(object):
@@ -259,36 +278,6 @@ class Phabricator(object):
 
         self.webserver.install()
 
-        # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
-        # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
-        self.system.install_packages(
-            ['git',
-             'php',
-             'php-mysql',
-             'php-gd',
-             'php-curl',
-             'php-apcu',
-             'php-cli',
-             'php-json',
-             'php-mbstring',
-             'python-pygments',
-             'mercurial',
-             'subversion',
-             # 'sendmail',  # TODO: Do we need it?
-             'imagemagick'])
-
-        for component_name, path in self._components:
-            dir = posixpath.dirname(path)
-            if not self.shell.does_file_exist(path):
-                self.shell.run(
-                    'cd %s && '
-                    'git clone https://github.com/phacility/%s.git' % (
-                        dir, component_name))
-            else:
-                self.shell.run(
-                    'cd %s && '
-                    'git pull' % path)
-
         self.shell.write_file('/etc/apache2/sites-available/phabricator.conf',
                                 b"""
 <VirtualHost *>
@@ -310,27 +299,59 @@ class Phabricator(object):
 </Directory>
 """)
 
+        # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
+        # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
+        self.system.install_packages(
+            ['git',
+             'php',
+             'php-mysql',
+             'php-gd',
+             'php-curl',
+             'php-apcu',
+             'php-cli',
+             'php-json',
+             'php-mbstring',
+             'python-pygments',
+             'mercurial',
+             'subversion',
+             # 'sendmail',  # TODO: Do we need it?
+             'imagemagick'])
+
+        self.log("Retrieve phabricator components.")
+        for component_name, path in self._components:
+            dir = posixpath.dirname(path)
+            if not self.shell.does_file_exist(path):
+                self.shell.run(
+                    'cd %s && '
+                    'git clone https://github.com/phacility/%s.git' % (
+                        dir, component_name))
+            else:
+                self.shell.run(
+                    'cd %s && '
+                    'git pull' % path)
+
+        self.log("Set Phabricator MySQL user credentials.")
         self._config_set('mysql.user', self.mysql_user)
         self._config_set('mysql.pass', self.mysql_password)
 
         # Configure server timezone.
         self.shell.run(
             r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
-        self.shell.run('service apache2 restart')
+        self.webserver.restart()
 
         # Setup MySQL Schema.
-        self.shell.run('service apache2 stop')
+        self.webserver.stop()
         self.stop()
 
         # TODO: Have a password for the root MySQL user.
         self._storage(['upgrade', '--force', '--user', 'root'])
 
-        self.shell.run('service apache2 start')
+        self.webserver.start()
 
         # OPcache should be configured to never revalidate code.
         self.shell.run(
             r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
-        self.shell.run('service apache2 restart')
+        self.webserver.restart()
 
         self.log('Enable Pygments.')
         self._config_set('pygments.enabled', 'true')
@@ -338,7 +359,7 @@ class Phabricator(object):
         # Configure 'post_max_size'.
         self.shell.run(
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
-        self.shell.run('service apache2 restart')
+        self.webserver.restart()
 
         self.log('Configure base URI.')
         self._config_set('phabricator.base-uri', "'http://172.19.0.5/'")
@@ -375,15 +396,15 @@ max_allowed_packet = 33554432
 
         self.mysql.restart()
         self.restart()
-        self.shell.run('service apache2 restart')
+        self.webserver.restart()
         # '''
 
         # '''
-        self.shell.run('service apache2 start')
+        self.webserver.start()
         self.shell.run('a2dissite 000-default')
         self.shell.run('a2ensite phabricator')
         self.shell.run('a2enmod rewrite')
-        self.shell.run('service apache2 restart')
+        self.webserver.restart()
         self.mysql.restart()
         self.restart()
         # '''
