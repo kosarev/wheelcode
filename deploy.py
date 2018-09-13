@@ -233,6 +233,7 @@ def main():
 </Directory>
 """)
     target.run('service mysql restart')
+    # '''
 
     # Drop Phabricator MySQL user $PH_MYSQL_USER before trying to create it.
     # Create Phabricator MySQL user $PH_MYSQL_USER.
@@ -245,10 +246,10 @@ def main():
     target.run('mysql -u root --execute "%s"' % (
         """CREATE USER 'phab'@'localhost' IDENTIFIED BY '5bzc7KahM3AroaG'; """
         """GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW ON \`phabricator\_%\`.* TO 'phab'@'localhost';"""))
+    # target.run('service mysql restart')
 
     target.run('/opt/phabricator/bin/config set mysql.user phab')
     target.run('/opt/phabricator/bin/config set mysql.pass 5bzc7KahM3AroaG')
-    target.run('service mysql restart')
 
     # Configure server timezone.
     target.run(
@@ -258,7 +259,17 @@ def main():
     # Setup MySQL Schema.
     target.run('service apache2 stop')
     target.run('/opt/phabricator/bin/phd stop')
-    target.run('/opt/phabricator/bin/storage upgrade --force')
+
+    target.run('/opt/phabricator/bin/storage upgrade --force --user root')
+
+    '''
+---
+    dbg "Executing Phabricator's storage upgrade"
+    p=$(sed -nr '/^password/{s/password = //p}' ~/.my.cnf)
+    runas_phab ${PH_ROOT}/phabricator/bin/storage upgrade --force --user root --password ${p}
+---
+    '''
+
     target.run('service apache2 start')
 
     # OPcache should be configured to never revalidate code.
@@ -328,8 +339,8 @@ max_allowed_packet = 33554432
     target.run('a2ensite phabricator')
     target.run('a2enmod rewrite')
     target.run('service apache2 restart')
-    target.run('service mysql start')
-    target.run('/opt/phabricator/bin/phd start')
+    target.run('service mysql restart')
+    target.run('/opt/phabricator/bin/phd restart')
     # '''
 
     target.run('ps aux')
