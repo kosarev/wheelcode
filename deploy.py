@@ -357,6 +357,7 @@ class Phabricator(object):
     def install(self):
         self.system.update_upgrade()
 
+        # Set up MySQL.
         self.mysql.install()
 
         self.log('Create the Phabricator MySQL user.')
@@ -366,8 +367,13 @@ class Phabricator(object):
             privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
             objects='\`phabricator\_%\`.*')
 
+        # Set up webserver.
         self.webserver.install()
 
+        # Set up PHP.
+        # TODO
+
+        self.log('Install packages Phabricator relies on.')
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
         # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
         self.system.install_packages(
@@ -386,46 +392,19 @@ class Phabricator(object):
              # 'sendmail',  # TODO: Do we need it?
              'imagemagick'])
 
-        self.log("Retrieve phabricator components.")
-        for component_name, path in self._components:
-            dir = posixpath.dirname(path)
-            if not self.shell.does_file_exist(path):
-                self.shell.run(
-                    'cd %s && '
-                    'git clone https://github.com/phacility/%s.git' % (
-                        dir, component_name))
-            else:
-                self.shell.run(
-                    'cd %s && '
-                    'git pull' % path)
-
-        self.log("Set Phabricator MySQL user credentials.")
-        self._config_set('mysql.user', self.mysql_user)
-        self._config_set('mysql.pass', self.mysql_password)
-
         # Configure server timezone.
         self.shell.run(
             r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
-
-        self.log('Setup MySQL Schema.')
-        # TODO: Have a password for the root MySQL user.
-        self._storage(['upgrade', '--force', '--user', 'root'])
 
         # OPcache should be configured to never revalidate code.
         self.shell.run(
             r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
         # self.webserver.restart()
 
-        self.log('Enable Pygments.')
-        self._config_set('pygments.enabled', 'true')
-
         # Configure 'post_max_size'.
         self.shell.run(
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
         # self.webserver.restart()
-
-        self.log('Configure base URI.')
-        self._config_set('phabricator.base-uri', "'http://%s/'" % self.domain)
 
         # Configure 'innodb_buffer_pool_size'.
         self.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
@@ -447,6 +426,30 @@ innodb_buffer_pool_size = 1600M
 max_allowed_packet = 33554432
 """)
 
+        # Set up Phabricator.
+        self.log("Retrieve phabricator components.")
+        for component_name, path in self._components:
+            dir = posixpath.dirname(path)
+            if not self.shell.does_file_exist(path):
+                self.shell.run(
+                    'cd %s && '
+                    'git clone https://github.com/phacility/%s.git' % (
+                        dir, component_name))
+            else:
+                self.shell.run(
+                    'cd %s && '
+                    'git pull' % path)
+
+        self.log("Set Phabricator MySQL user credentials.")
+        self._config_set('mysql.user', self.mysql_user)
+        self._config_set('mysql.pass', self.mysql_password)
+
+        self.log('Configure Phabricator base URI.')
+        self._config_set('phabricator.base-uri', "'http://%s/'" % self.domain)
+
+        self.log('Enable Pygments.')
+        self._config_set('pygments.enabled', 'true')
+
         self.shell.run('mkdir -p /opt/repos')
         self._config_set('repository.default-local-path', '/opt/repos')
 
@@ -456,6 +459,10 @@ max_allowed_packet = 33554432
 
         self._config_set('metamta.mail-adapter',
                          'PhabricatorMailImplementationPHPMailerAdapter')
+
+        self.log('Setup MySQL Schema.')
+        # TODO: Have a password for the root MySQL user.
+        self._storage(['upgrade', '--force', '--user', 'root'])
 
         self.restart()
 
