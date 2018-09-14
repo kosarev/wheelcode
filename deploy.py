@@ -212,14 +212,60 @@ class Apache2(object):
         self.shell = system.shell
         self.log = system.log
 
+        self._config_dir = posixpath.join('/etc', 'apache2')
+        self._sites_available_dir = posixpath.join(self._config_dir,
+                                                   'sites-available')
+
+        self._sites = dict()
+
+        self._installed = False
         self._started = False
 
+    def add_site(self, id, config):
+        if self._installed:
+            raise Error('Cannot add site %s: Apache2 is already installed.' % (
+                            repr(id)))
+
+        if id in self._sites:
+            raise Error('Site %s already exists.' % repr(id))
+
+        self._sites[id] = config
+
+    def _generate_directive_lines(self, directives):
+        return ['    %s %s' % d for d in directives]
+
+    def _generate_site_config_file(self, config):
+        lines = []
+        for addr, directives in config['hosts'].items():
+            lines.extend(['', '<VirtualHost %s>' % addr])
+            lines.extend(self._generate_directive_lines(directives))
+            lines.extend(['</VirtualHost>'])
+
+        for path, directives in config['directories'].items():
+            lines.extend(['', '<Directory "%s">' % path])
+            lines.extend(self._generate_directive_lines(directives))
+            lines.extend(['</Directory>'])
+
+        lines.extend([''])
+
+        return '\n'.join(lines).encode('utf-8')
+
+    def _install_site_config_file(self, id, config):
+        path = posixpath.join(self._sites_available_dir, '%s.conf' % id)
+        self.shell.write_file(path, self._generate_site_config_file(config))
+
     def install(self):
+        self.log('Install Apache2.')
         self.system.update_upgrade()
         self.system.install_packages(
             ['apache2',
              'libapache2-mod-php',  # TODO: Not all setups need this.
             ])
+
+        for id, config in self._sites.items():
+            self._install_site_config_file(id, config)
+
+        self._installed = True
 
     def _manage(self, action):
         self.system._manage_service('apache2', action)
@@ -247,11 +293,14 @@ class Phabricator(object):
         self.shell = self.system.shell
         self.log = self.mysql.log
 
+        self.domain = 'dev.local'
+
         self.mysql_user = 'phab'
         self.mysql_password = '5bzc7KahM3AroaG'
 
         self._base_path = '/opt'
         self._phabricator_path = posixpath.join(self._base_path, 'phabricator')
+        self._webroot_path = posixpath.join(self._phabricator_path, 'webroot')
         self._arcanist_path = posixpath.join(self._base_path, 'arcanist')
         self._libphutil_path = posixpath.join(self._base_path, 'libphutil')
 
@@ -260,6 +309,24 @@ class Phabricator(object):
             ('arcanist', self._arcanist_path),
             ('phabricator', self._phabricator_path),
         ]
+
+        self._site_id = 'phabricator'
+
+        self.webserver.add_site(self._site_id, {
+            'hosts': {
+                '*': [
+                    ('ServerName', self.domain),
+                    ('DocumentRoot', self._webroot_path),
+                    ('RewriteEngine', 'on'),
+                    ('RewriteRule', '^(.*)$ /index.php?__path__=$1 [B,L,QSA]'),
+                ],
+            },
+            'directories': {
+                self._webroot_path: [
+                    ('Require', 'all granted'),
+                ],
+            },
+        })
 
         self._daemon_started = False
 
@@ -284,27 +351,6 @@ class Phabricator(object):
             objects='\`phabricator\_%\`.*')
 
         self.webserver.install()
-
-        self.shell.write_file('/etc/apache2/sites-available/phabricator.conf',
-                                b"""
-<VirtualHost *>
-  # Change this to the domain which points to your host.
-  ServerName 172.19.0.5
-
-  # Change this to the path where you put 'phabricator' when you checked it
-  # out from GitHub when following the Installation Guide.
-  #
-  # Make sure you include "/webroot" at the end!
-  DocumentRoot /opt/phabricator/webroot
-
-  RewriteEngine on
-  RewriteRule ^(.*)$          /index.php?__path__=$1  [B,L,QSA]
-</VirtualHost>
-
-<Directory "/opt/phabricator/webroot">
-    Require all granted
-</Directory>
-""")
 
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
         # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
