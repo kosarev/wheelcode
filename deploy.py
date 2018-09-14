@@ -254,6 +254,15 @@ class Apache2(object):
         path = posixpath.join(self._sites_available_dir, '%s.conf' % id)
         self.shell.write_file(path, self._generate_site_config_file(config))
 
+    def _enable_site(self, id):
+        self.shell.run(['a2ensite', id])
+
+    def _disable_site(self, id):
+        self.shell.run(['a2dissite', id])
+
+    def _disable_default_site(self):
+        self._disable_site('000-default')
+
     def install(self):
         self.log('Install Apache2.')
         self.system.update_upgrade()
@@ -264,6 +273,11 @@ class Apache2(object):
 
         for id, config in self._sites.items():
             self._install_site_config_file(id, config)
+
+        self._disable_default_site()
+
+        for id in self._sites:
+            self._enable_site(id)
 
         self._installed = True
 
@@ -390,16 +404,15 @@ class Phabricator(object):
         # Configure server timezone.
         self.shell.run(
             r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
-        self.webserver.restart()
+        # self.webserver.restart()
 
         # Setup MySQL Schema.
-        self.webserver.stop()
-        self._stop_daemon()
-
+        # self.webserver.stop()
+        # self._stop_daemon()
         # TODO: Have a password for the root MySQL user.
         self._storage(['upgrade', '--force', '--user', 'root'])
 
-        self.webserver.start()
+        # self.webserver.start()
 
         # OPcache should be configured to never revalidate code.
         self.shell.run(
@@ -415,7 +428,7 @@ class Phabricator(object):
         self.webserver.restart()
 
         self.log('Configure base URI.')
-        self._config_set('phabricator.base-uri', "'http://172.19.0.5/'")
+        self._config_set('phabricator.base-uri', "'http://%s/'" % self.domain)
 
         # Configure 'innodb_buffer_pool_size'.
         self.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
@@ -446,10 +459,6 @@ max_allowed_packet = 33554432
 
         self._config_set('metamta.mail-adapter',
                          'PhabricatorMailImplementationPHPMailerAdapter')
-
-        self.shell.run('a2enmod rewrite')
-        self.shell.run('a2dissite 000-default')
-        self.shell.run('a2ensite phabricator')
 
         self.restart()
 
