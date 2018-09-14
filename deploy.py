@@ -157,11 +157,40 @@ class MariaDB(object):
         self.shell = system.shell
         self.log = system.log
 
+        self._config = dict()
+
+        self._installed = False
         self._started = False
+
+    def configure(self, config):
+        if self._installed:
+            raise Error('MariaDB shall be configured before installing.')
+
+        for option, value in config.items():
+            if option not in self._config:
+                self._config[option] = value
+                continue
+
+            if self._config[option] != value:
+                raise Error('Conflicting values for MariaDB option %s: %s and %s' % (
+                                option, self._config[option], value))
+
+    def _install_config_file(self):
+        lines = ['', '[mysqld]']
+        for option, value in self._config.items():
+            lines.append('%s = %s' % (option, value))
+        lines.append('')
+
+        self.shell.write_file('/etc/mysql/mariadb.conf.d/99-custom_config.cnf',
+                              '\n'.join(lines).encode('utf-8'))
 
     def install(self):
         self.system.update_upgrade()
         self.system.install_packages(['mariadb-server'])
+
+        self._install_config_file()
+
+        self._installed = True
 
     def _execute(self, commands, may_fail=False):
         # We need the daemon to be started.
@@ -328,6 +357,26 @@ class Phabricator(object):
 
         self._site_id = 'phabricator'
 
+        self.mysql.configure({
+            'sql_mode': 'STRICT_ALL_TABLES',
+
+            # Size of the memory area where InnoDB caches table
+            # and index data. Actually needs 10% more than
+            # specified for related cache structures. Phabricator
+            # whines if this is set to less than 256M. MySQL
+            # won't start if it cannot allocate the specified
+            # amount of memory with this error:
+            #
+            #     InnoDB: Fatal error: cannot allocate memory for
+            #     the buffer pool
+            #
+            # This happened with 400M pool size (with apache and
+            # phd daemons running).
+            'innodb_buffer_pool_size': '1600M',
+
+            'max_allowed_packet': '33554432',
+        })
+
         self.webserver.add_site(self._site_id, {
             'hosts': {
                 '*': [
@@ -399,32 +448,10 @@ class Phabricator(object):
         # OPcache should be configured to never revalidate code.
         self.shell.run(
             r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
-        # self.webserver.restart()
 
         # Configure 'post_max_size'.
         self.shell.run(
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
-        # self.webserver.restart()
-
-        # Configure 'innodb_buffer_pool_size'.
-        self.shell.write_file('/etc/mysql/mariadb.conf.d/99-phabricator_tweaks.cnf',
-                            b"""
-# Phabricator recommendations for MySQL.
-
-[mysqld]
-
-sql_mode = STRICT_ALL_TABLES
-
-# Size of the memory area where InnoDB caches table and index data. Actually
-# needs 10% more than specified for related cache structures. Phabricator
-# whines if this is set to less than 256M. MySQL won't start if it cannot
-# allocate the specified amount of memory with this error:
-#     InnoDB: Fatal error: cannot allocate memory for the buffer pool
-# This happened with 400M pool size (with apache and phd daemons running).
-innodb_buffer_pool_size = 1600M
-
-max_allowed_packet = 33554432
-""")
 
         # Set up Phabricator.
         self.log("Retrieve phabricator components.")
@@ -440,7 +467,7 @@ max_allowed_packet = 33554432
                     'cd %s && '
                     'git pull' % path)
 
-        self.log("Set Phabricator MySQL user credentials.")
+        self.log("Set up Phabricator MySQL user credentials.")
         self._config_set('mysql.user', self.mysql_user)
         self._config_set('mysql.pass', self.mysql_password)
 
@@ -450,17 +477,20 @@ max_allowed_packet = 33554432
         self.log('Enable Pygments.')
         self._config_set('pygments.enabled', 'true')
 
+        self.log('Configure Phabricator mail adapter.')
+        self._config_set('metamta.mail-adapter',
+                         'PhabricatorMailImplementationPHPMailerAdapter')
+
+        self.log('Set up Phabricator repositories directory.')
         self.shell.run('mkdir -p /opt/repos')
         self._config_set('repository.default-local-path', '/opt/repos')
 
+        self.log('Set up Phabricator files directory.')
         self.shell.run('mkdir -p /opt/files')
         self.shell.run('chown -R www-data:www-data /opt/files')
         self._config_set('storage.local-disk.path', '/opt/files')
 
-        self._config_set('metamta.mail-adapter',
-                         'PhabricatorMailImplementationPHPMailerAdapter')
-
-        self.log('Setup MySQL Schema.')
+        self.log('Set up MySQL Schema.')
         # TODO: Have a password for the root MySQL user.
         self._storage(['upgrade', '--force', '--user', 'root'])
 
