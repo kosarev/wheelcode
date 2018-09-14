@@ -391,6 +391,7 @@ class Phabricator(object):
         self.log = self.mysql.log
 
         self.domain = 'dev.local'
+        self.files_domain = 'devfiles.local'
 
         self.mysql_user = 'phab'
         self.mysql_password = '5bzc7KahM3AroaG'
@@ -511,8 +512,11 @@ class Phabricator(object):
         self._config_set('mysql.user', self.mysql_user)
         self._config_set('mysql.pass', self.mysql_password)
 
-        self.log('Configure Phabricator base URI.')
-        self._config_set('phabricator.base-uri', "'http://%s/'" % self.domain)
+        self.log('Configure Phabricator base and file URIs.')
+        self._config_set('phabricator.base-uri',
+                         "'http://%s/'" % self.domain)
+        self._config_set('security.alternate-file-domain',
+                         "'http://%s/'" % self.files_domain)
 
         self.log('Enable Pygments.')
         self._config_set('pygments.enabled', 'true')
