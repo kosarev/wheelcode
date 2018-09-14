@@ -330,11 +330,34 @@ class Apache2(object):
             self._started = False
 
 
+class PHP(object):
+    def __init__(self, system):
+        self.system = system
+        self.shell = system.shell
+        self.log = system.log
+
+    def install(self):
+        self.log('Install PHP.')
+        self.system.update_upgrade()
+
+        self.system.install_packages(
+            ['php',
+             'php-mysql',  # Not all setups need these packages.
+             'php-gd',
+             'php-curl',
+             'php-apcu',
+             'php-cli',
+             'php-json',
+             'php-mbstring'])
+
+
 class Phabricator(object):
-    def __init__(self, mysql, webserver):
+    def __init__(self, mysql, webserver, php):
         self.mysql = mysql
         self.webserver = webserver
-        self.system = _identical(self.mysql.system, self.webserver.system)
+        self.php = php
+        self.system = _identical(self.mysql.system, self.webserver.system,
+                                 self.php.system)
         self.shell = self.system.shell
         self.log = self.mysql.log
 
@@ -420,26 +443,7 @@ class Phabricator(object):
         self.webserver.install()
 
         # Set up PHP.
-        # TODO
-
-        self.log('Install packages Phabricator relies on.')
-        # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
-        # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
-        self.system.install_packages(
-            ['git',
-             'php',
-             'php-mysql',
-             'php-gd',
-             'php-curl',
-             'php-apcu',
-             'php-cli',
-             'php-json',
-             'php-mbstring',
-             'python-pygments',
-             'mercurial',
-             'subversion',
-             # 'sendmail',  # TODO: Do we need it?
-             'imagemagick'])
+        self.php.install()
 
         # Configure server timezone.
         self.shell.run(
@@ -454,6 +458,17 @@ class Phabricator(object):
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
 
         # Set up Phabricator.
+        self.log('Install packages Phabricator relies on.')
+        # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
+        # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
+        self.system.install_packages(
+            ['git',
+             'mercurial',
+             'subversion',
+             'python-pygments',
+             # 'sendmail',  # TODO: Do we need it?
+             'imagemagick'])
+
         self.log("Retrieve phabricator components.")
         for component_name, path in self._components:
             dir = posixpath.dirname(path)
@@ -541,10 +556,9 @@ def main():
     docker_shell = DockerContainerShell(container_name='phabricator',
                                         shell=local_shell)
     system = Ubuntu(docker_shell)
-    mysql = MariaDB(system)
-    webserver = Apache2(system)
-    phab = Phabricator(mysql=mysql,
-                       webserver=webserver)
+    phab = Phabricator(mysql=MariaDB(system),
+                       webserver=Apache2(system),
+                       php=PHP(system))
 
     phab.install()
     phab.start()
