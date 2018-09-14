@@ -200,6 +200,11 @@ class MariaDB(object):
         self._manage('restart')
         self._started = True
 
+    def stop(self):
+        if self._started:
+            self._manage('stop')
+            self._started = False
+
 
 class Apache2(object):
     def __init__(self, system):
@@ -255,6 +260,8 @@ class Phabricator(object):
             ('arcanist', self._arcanist_path),
             ('phabricator', self._phabricator_path),
         ]
+
+        self._daemon_started = False
 
     def _config_set(self, id, value):
         config_path = posixpath.join(self._phabricator_path, 'bin', 'config')
@@ -394,20 +401,11 @@ max_allowed_packet = 33554432
         self._config_set('metamta.mail-adapter',
                          'PhabricatorMailImplementationPHPMailerAdapter')
 
-        self.mysql.restart()
-        self._restart_daemon()
-        self.webserver.restart()
-        # '''
-
-        # '''
-        self.webserver.start()
+        self.shell.run('a2enmod rewrite')
         self.shell.run('a2dissite 000-default')
         self.shell.run('a2ensite phabricator')
-        self.shell.run('a2enmod rewrite')
-        self.webserver.restart()
-        self.mysql.restart()
-        self._restart_daemon()
-        # '''
+
+        self.restart()
 
         self.shell.run('ps aux')
 
@@ -415,11 +413,33 @@ max_allowed_packet = 33554432
         phd_path = posixpath.join(self._phabricator_path, 'bin', 'phd')
         self.shell.run([phd_path, action])
 
+    def _start_daemon(self):
+        if not self._daemon_started:
+            self._manage_daemon('start')
+            self._daemon_started = True
+
     def _restart_daemon(self):
         self._manage_daemon('restart')
+        self._daemon_started = True
 
     def _stop_daemon(self):
-        self._manage_daemon('stop')
+        if self._daemon_started:
+            self._manage_daemon('stop')
+            self._daemon_started = False
+
+    def start(self):
+        self.mysql.start()
+        self._start_daemon()
+        self.webserver.start()
+
+    def restart(self):
+        self.stop()
+        self.start()
+
+    def stop(self):
+        self.webserver.stop()
+        self._stop_daemon()
+        self.mysql.stop()
 
 
 def main():
@@ -433,6 +453,7 @@ def main():
                        webserver=webserver)
 
     phab.install()
+    phab.start()
 
 
 if __name__ == '__main__':
