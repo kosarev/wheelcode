@@ -336,6 +336,31 @@ class PHP(object):
         self.shell = system.shell
         self.log = system.log
 
+        self._config = dict()
+
+        self._installed = False
+
+    def configure(self, config):
+        if self._installed:
+            raise Error('PHP shall be configured before installing.')
+
+        for option, value in config.items():
+            if option not in self._config:
+                self._config[option] = value
+                continue
+
+            if self._config[option] != value:
+                raise Error('Conflicting values for PHP option %s: %s and %s' % (
+                                option, self._config[option], value))
+
+    def _update_config_file(self):
+        config_file_path = '/etc/php/7.2/apache2/php.ini'
+        for option, value in self._config.items():
+            self.shell.run(
+                'sed -i -r "/%s ?=/{ s#.*#%s = %s# }" %s' % (
+                    option.replace('.', r'\.'), option, value,
+                    config_file_path))
+
     def install(self):
         self.log('Install PHP.')
         self.system.update_upgrade()
@@ -349,6 +374,10 @@ class PHP(object):
              'php-cli',
              'php-json',
              'php-mbstring'])
+
+        self._update_config_file()
+
+        self._installed = True
 
 
 class Phabricator(object):
@@ -416,6 +445,14 @@ class Phabricator(object):
             },
         })
 
+        self.php.configure({
+            'date.timezone': "'Etc/UTC'",
+            'post_max_size': '32M',
+
+            # OPcache should be configured to never revalidate code.
+            'opcache.validate_timestamps': '0',
+        })
+
         self._daemon_started = False
 
     def _config_set(self, id, value):
@@ -444,18 +481,6 @@ class Phabricator(object):
 
         # Set up PHP.
         self.php.install()
-
-        # Configure server timezone.
-        self.shell.run(
-            r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
-
-        # OPcache should be configured to never revalidate code.
-        self.shell.run(
-            r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
-
-        # Configure 'post_max_size'.
-        self.shell.run(
-            r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
 
         # Set up Phabricator.
         self.log('Install packages Phabricator relies on.')
@@ -523,9 +548,7 @@ class Phabricator(object):
         self.shell.run([phd_path, action])
 
     def _start_daemon(self):
-        if not self._daemon_started:
-            self._manage_daemon('start')
-            self._daemon_started = True
+        self._restart_daemon()
 
     def _restart_daemon(self):
         self._manage_daemon('restart')
@@ -542,8 +565,9 @@ class Phabricator(object):
         self.webserver.start()
 
     def restart(self):
-        self.stop()
-        self.start()
+        self.mysql.restart()
+        self._restart_daemon()
+        self.webserver.restart()
 
     def stop(self):
         self.webserver.stop()
