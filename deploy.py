@@ -406,20 +406,15 @@ class Phabricator(object):
         # Configure server timezone.
         self.shell.run(
             r"""sed -i "/date\.timezone =/{ s#.*#date.timezone = 'Etc/UTC'# }" /etc/php/7.2/apache2/php.ini""")
-        # self.webserver.restart()
 
-        # Setup MySQL Schema.
-        # self.webserver.stop()
-        # self._stop_daemon()
+        self.log('Setup MySQL Schema.')
         # TODO: Have a password for the root MySQL user.
         self._storage(['upgrade', '--force', '--user', 'root'])
-
-        # self.webserver.start()
 
         # OPcache should be configured to never revalidate code.
         self.shell.run(
             r"""sed -i "/opcache\.validate_timestamps=/{ s#.*#opcache.validate_timestamps = 0# }" /etc/php/7.2/apache2/php.ini""")
-        self.webserver.restart()
+        # self.webserver.restart()
 
         self.log('Enable Pygments.')
         self._config_set('pygments.enabled', 'true')
@@ -427,7 +422,7 @@ class Phabricator(object):
         # Configure 'post_max_size'.
         self.shell.run(
             r"""sed -i "/post_max_size/{ s/.*/post_max_size = 32M/ }" /etc/php/7.2/apache2/php.ini""")
-        self.webserver.restart()
+        # self.webserver.restart()
 
         self.log('Configure base URI.')
         self._config_set('phabricator.base-uri', "'http://%s/'" % self.domain)
