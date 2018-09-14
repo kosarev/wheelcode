@@ -409,6 +409,11 @@ max_allowed_packet = 33554432
 
         self.shell.run('ps aux')
 
+    def upgrade():
+        # TODO
+        # https://secure.phabricator.com/book/phabricator/article/upgrading/
+        raise Error('Upgrading Phabricator is not supported yet.')
+
     def _manage_daemon(self, action):
         phd_path = posixpath.join(self._phabricator_path, 'bin', 'phd')
         self.shell.run([phd_path, action])
