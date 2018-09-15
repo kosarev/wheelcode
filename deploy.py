@@ -648,11 +648,24 @@ class Phabricator(object):
              '--password', self.mysql.get_config()['root.password']])
         '''
 
+        # Set up git access.
+        self.log('Create git user.')
         git_user = self._config['app.git.user.name']
         if not self.system.does_user_exist(git_user):
             self.shell.run(['useradd', '--create-home',
                             '--password', 'NP',
                             git_user])
+
+        self.log('Allow the git user to sudo as the daemon user.')
+        config_file_path = '/etc/sudoers.d/%s' % self._config['app.id']
+        self.shell.write_file(config_file_path,
+                              """
+Defaults:{git_user} !requiretty
+{git_user} ALL=({daemon_user}) SETENV: NOPASSWD: /usr/bin/git-upload-pack, /usr/bin/git-receive-pack, /usr/bin/hg, /usr/bin/svnserve
+""".format(
+            git_user=git_user,
+            daemon_user=self._config['app.daemon.user.name']).encode('utf-8'))
+        self.shell.run(['chmod', '440', config_file_path])
 
         self.restart()
 
