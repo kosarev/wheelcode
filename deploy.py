@@ -484,6 +484,8 @@ class Phabricator(object):
         self._config.set_default('app.site.id',
                                  '%s_site' % self._config['app.id'])
 
+        self._config.set_default('app.git.user.name', 'git')
+
         self._app_path = posixpath.join('/opt', self._config['app.id'])
         self._phabricator_path = posixpath.join(self._app_path, 'phabricator')
         self._webroot_path = posixpath.join(self._phabricator_path, 'webroot')
@@ -556,6 +558,7 @@ class Phabricator(object):
                        user=self._config['app.daemon.user.name'])
 
     def install(self):
+        '''
         self.system.update_upgrade()
 
         # Set up MySQL.
@@ -643,6 +646,13 @@ class Phabricator(object):
         self._run_storage(
             ['upgrade', '--force', '--user', 'root',
              '--password', self.mysql.get_config()['root.password']])
+        '''
+
+        git_user = self._config['app.git.user.name']
+        if not self.system.does_user_exist(git_user):
+            self.shell.run(['useradd', '--create-home',
+                            '--password', 'NP',
+                            git_user])
 
         self.restart()
 
