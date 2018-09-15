@@ -667,6 +667,8 @@ Defaults:{git_user} !requiretty
             daemon_user=self._config['app.daemon.user.name']).encode('utf-8'))
         self.shell.run(['chmod', '440', config_file_path])
 
+        self._run_config_set('diffusion.ssh-user', git_user)
+
         self.restart()
 
         self.shell.run('ps aux')
