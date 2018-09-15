@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 
 
+import os
 import posixpath
 import subprocess
+import secrets
+import string
 import sys
 import tempfile
 
@@ -17,6 +20,53 @@ def _identical(*args):
     if len(set(args)) > 1:
         raise Error('These objects are required to be identical: %s' % repr(args))
     return args[0]
+
+
+def generate_password():
+    alphabet = string.ascii_letters + string.digits + '._'
+    return ''.join(secrets.choice(alphabet) for i in range(16))
+
+
+# Stores configuration values.
+class Config(object):
+    def __init__(self, options=dict()):
+        self._options = dict()
+        for id, value in options.items():
+            self[id] = value
+
+    def __contains__(self, id):
+        return id in self._options
+
+    def __getitem__(self, id):
+        if id in self:
+            return self._options[id]
+
+        raise Error('Unknown option %s.' % repr(id))
+
+    def __setitem__(self, id, value):
+        self._options[id] = value
+
+    def set_default(self, id, value):
+        if id not in self:
+            self[id] = value
+
+    def __iter__(self):
+        for id in sorted(self._options):
+            yield (id, self._options[id])
+
+    def load(self, path):
+        with open(path, 'rt') as f:
+            for id, value in eval(f.read()).items():
+                self[id] = value
+
+    def save(self, path):
+        tmp_path = path + '.tmp'
+        with open(tmp_path, 'wt') as f:
+            f.write('{\n')
+            for id, value in self:
+                f.write('    %s: %s,\n' % (repr(id), repr(value)))
+            f.write('}\n')
+        os.rename(tmp_path, path)
 
 
 # A customizable logger.
@@ -381,7 +431,7 @@ class PHP(object):
 
 
 class Phabricator(object):
-    def __init__(self, mysql, webserver, php):
+    def __init__(self, mysql, webserver, php, config=Config()):
         self.mysql = mysql
         self.webserver = webserver
         self.php = php
@@ -390,25 +440,36 @@ class Phabricator(object):
         self.shell = self.system.shell
         self.log = self.mysql.log
 
-        self.domain = 'dev.local'
-        self.files_domain = 'devfiles.local'
+        self._config = config
 
-        self.mysql_user = 'phab'
-        self.mysql_password = '5bzc7KahM3AroaG'
+        # Shall be unique among all applications we support.
+        self._config.set_default('app.id', 'phabricator')
 
-        self._base_path = '/opt'
-        self._phabricator_path = posixpath.join(self._base_path, 'phabricator')
+        self._config.set_default('app.domain-base', 'dev.local')
+        self._config.set_default('app.domain-files', 'devfiles.local')
+
+        self._config.set_default('mysql.user.name',
+                                 '%s_mysql_user' % self._config['app.id'])
+        self._config.set_default('mysql.user.password',
+                                 generate_password())
+
+        self._config.set_default('app.daemon.user.name',
+                                 '%s_user' % self._config['app.id'])
+
+        self._config.set_default('app.site.id',
+                                 '%s_site' % self._config['app.id'])
+
+        self._app_path = posixpath.join('/opt', self._config['app.id'])
+        self._phabricator_path = posixpath.join(self._app_path, 'phabricator')
         self._webroot_path = posixpath.join(self._phabricator_path, 'webroot')
-        self._arcanist_path = posixpath.join(self._base_path, 'arcanist')
-        self._libphutil_path = posixpath.join(self._base_path, 'libphutil')
+        self._arcanist_path = posixpath.join(self._app_path, 'arcanist')
+        self._libphutil_path = posixpath.join(self._app_path, 'libphutil')
 
         self._components = [
             ('libphutil', self._libphutil_path),
             ('arcanist', self._arcanist_path),
             ('phabricator', self._phabricator_path),
         ]
-
-        self._site_id = 'phabricator'
 
         self.mysql.configure({
             'sql_mode': 'STRICT_ALL_TABLES',
@@ -430,10 +491,10 @@ class Phabricator(object):
             'max_allowed_packet': '33554432',
         })
 
-        self.webserver.add_site(self._site_id, {
+        self.webserver.add_site(self._config['app.site.id'], {
             'hosts': {
                 '*': [
-                    ('ServerName', self.domain),
+                    ('ServerName', self._config['app.domain-base']),
                     ('DocumentRoot', self._webroot_path),
                     ('RewriteEngine', 'on'),
                     ('RewriteRule', '^(.*)$ /index.php?__path__=$1 [B,L,QSA]'),
@@ -456,11 +517,14 @@ class Phabricator(object):
 
         self._daemon_started = False
 
-    def _config_set(self, id, value):
+    def get_config(self):
+        return self._config
+
+    def _run_config_set(self, id, value):
         config_path = posixpath.join(self._phabricator_path, 'bin', 'config')
         self.shell.run([config_path, 'set', id, value])
 
-    def _storage(self, args):
+    def _run_storage(self, args):
         storage_path = posixpath.join(self._phabricator_path, 'bin', 'storage')
         self.shell.run([storage_path] + args)
 
@@ -473,7 +537,8 @@ class Phabricator(object):
         self.log('Create the Phabricator MySQL user.')
         # https://coderwall.com/p/ne1thg/phabricator-mysql-permissions
         self.mysql.add_user(
-            user=self.mysql_user, password=self.mysql_password,
+            user=self._config['mysql.user.name'],
+            password=self._config['mysql.user.password'],
             privileges='SELECT, INSERT, UPDATE, DELETE, EXECUTE, SHOW VIEW',
             objects='\`phabricator\_%\`.*')
 
@@ -484,6 +549,16 @@ class Phabricator(object):
         self.php.install()
 
         # Set up Phabricator.
+        self.log('Create Phabricator application user.')
+
+
+        ''' TODO
+    dbg "Creating a user for Phabricator's files: $PH_USER"
+    useradd -m ${PH_USER} -s /bin/bash && c=0 || c=$?
+    # Ignore exit code 9 (user already exists), otherwise fail
+    test $c -eq 0 -o $c -eq 9 || exit $c
+        '''
+
         self.log('Install packages Phabricator relies on.')
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
         # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
@@ -500,43 +575,44 @@ class Phabricator(object):
             dir = posixpath.dirname(path)
             if not self.shell.does_file_exist(path):
                 self.shell.run(
+                    'mkdir -p %s && '
                     'cd %s && '
                     'git clone https://github.com/phacility/%s.git' % (
-                        dir, component_name))
+                        dir, dir, component_name))
             else:
                 self.shell.run(
                     'cd %s && '
                     'git pull' % path)
 
         self.log("Set up Phabricator MySQL user credentials.")
-        self._config_set('mysql.user', self.mysql_user)
-        self._config_set('mysql.pass', self.mysql_password)
+        self._run_config_set('mysql.user', self._config['mysql.user.name'])
+        self._run_config_set('mysql.pass', self._config['mysql.user.password'])
 
         self.log('Configure Phabricator base and file URIs.')
-        self._config_set('phabricator.base-uri',
-                         "'http://%s/'" % self.domain)
-        self._config_set('security.alternate-file-domain',
-                         "'http://%s/'" % self.files_domain)
+        self._run_config_set('phabricator.base-uri',
+                             "'http://%s/'" % self._config['app.domain-base'])
+        self._run_config_set('security.alternate-file-domain',
+                             "'http://%s/'" % self._config['app.domain-files'])
 
         self.log('Enable Pygments.')
-        self._config_set('pygments.enabled', 'true')
+        self._run_config_set('pygments.enabled', 'true')
 
         self.log('Configure Phabricator mail adapter.')
-        self._config_set('metamta.mail-adapter',
-                         'PhabricatorMailImplementationPHPMailerAdapter')
+        self._run_config_set('metamta.mail-adapter',
+                             'PhabricatorMailImplementationPHPMailerAdapter')
 
         self.log('Set up Phabricator repositories directory.')
         self.shell.run('mkdir -p /opt/repos')
-        self._config_set('repository.default-local-path', '/opt/repos')
+        self._run_config_set('repository.default-local-path', '/opt/repos')
 
         self.log('Set up Phabricator files directory.')
         self.shell.run('mkdir -p /opt/files')
         self.shell.run('chown -R www-data:www-data /opt/files')
-        self._config_set('storage.local-disk.path', '/opt/files')
+        self._run_config_set('storage.local-disk.path', '/opt/files')
 
         self.log('Set up MySQL Schema.')
         # TODO: Have a password for the root MySQL user.
-        self._storage(['upgrade', '--force', '--user', 'root'])
+        self._run_storage(['upgrade', '--force', '--user', 'root'])
 
         self.restart()
 
@@ -580,16 +656,23 @@ class Phabricator(object):
 
 
 def main():
-    local_shell = LocalShell(Logger())
-    docker_shell = DockerContainerShell(container_name='phabricator',
-                                        shell=local_shell)
-    system = Ubuntu(docker_shell)
-    phab = Phabricator(mysql=MariaDB(system),
-                       webserver=Apache2(system),
-                       php=PHP(system))
+    config = Config()
+    config.load('config')
 
-    phab.install()
-    phab.start()
+    try:
+        local_shell = LocalShell(Logger())
+        docker_shell = DockerContainerShell(container_name='phabricator',
+                                            shell=local_shell)
+        system = Ubuntu(docker_shell)
+        phab = Phabricator(mysql=MariaDB(system),
+                           webserver=Apache2(system),
+                           php=PHP(system),
+                           config=config)
+
+        phab.install()
+        phab.start()
+    finally:
+        config.save('config')
 
 
 if __name__ == '__main__':
