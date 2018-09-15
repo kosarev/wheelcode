@@ -23,7 +23,7 @@ def _identical(*args):
 
 
 def generate_password():
-    alphabet = string.ascii_letters + string.digits + '._'
+    alphabet = string.ascii_letters + string.digits
     return ''.join(secrets.choice(alphabet) for i in range(16))
 
 
@@ -38,12 +38,16 @@ class Config(object):
         return id in self._options
 
     def __getitem__(self, id):
-        if id in self:
-            return self._options[id]
+        if id not in self:
+            raise Error('Unknown option %s.' % repr(id))
 
-        raise Error('Unknown option %s.' % repr(id))
+        return self._options[id]
 
     def __setitem__(self, id, value):
+        if id in self and self[id] != value:
+            raise Error('Conflicting values for option %s: %s and %s.' % (
+                            repr(id), repr(self[id]), value))
+
         self._options[id] = value
 
     def set_default(self, id, value):
@@ -145,9 +149,13 @@ class DockerContainerShell(object):
         self.shell = shell
         self.log = shell.log
 
-    def run(self, command, may_fail=False):
+    def run(self, command, may_fail=False, user=None):
         if not isinstance(command, list):
             command = command.split()
+
+        if user:
+            command = ['sudo', '--non-interactive', '--login',
+                       '--user', user, '--'] + command
 
         command = ['docker', 'exec', '-it', self.container_name,
                    'sh', '-c', '%s' % ' '.join(command)]
@@ -207,33 +215,37 @@ class Ubuntu(object):
 
 
 class MariaDB(object):
-    def __init__(self, system):
+    def __init__(self, system, config=Config()):
         self.system = system
         self.shell = system.shell
         self.log = system.log
 
-        self._config = dict()
+        self._config = config
+
+        self._config.set_default('root.password', generate_password())
+
+        self._daemon_option_prefix = 'daemon.'
 
         self._installed = False
         self._started = False
 
-    def configure(self, config):
+    def get_config(self):
+        return self._config
+
+    def configure_daemon(self, config):
         if self._installed:
             raise Error('MariaDB shall be configured before installing.')
 
-        for option, value in config.items():
-            if option not in self._config:
-                self._config[option] = value
-                continue
-
-            if self._config[option] != value:
-                raise Error('Conflicting values for MariaDB option %s: %s and %s' % (
-                                option, self._config[option], value))
+        for id, value in config.items():
+            id = self._daemon_option_prefix + id
+            self._config[id] = value
 
     def _install_config_file(self):
         lines = ['', '[mysqld]']
-        for option, value in self._config.items():
-            lines.append('%s = %s' % (option, value))
+        for id, value in self._config:
+            if id.startswith(self._daemon_option_prefix):
+                id = id[len(self._daemon_option_prefix):]
+                lines.append('%s = %s' % (id, value))
         lines.append('')
 
         self.shell.write_file('/etc/mysql/mariadb.conf.d/99-custom_config.cnf',
@@ -245,6 +257,12 @@ class MariaDB(object):
 
         self._install_config_file()
 
+        self.log('Set root password and disable plugin login.')
+        self._execute("use mysql; "
+                      "update user set plugin='' where User='root'; "
+                      "set password = password('%s');"
+                      "flush privileges;" % self._config['root.password'])
+
         self._installed = True
 
     def _execute(self, commands, may_fail=False):
@@ -252,7 +270,9 @@ class MariaDB(object):
         self.start()
 
         self.shell.run(
-            command='mysql -u root --execute "%s"' % commands,
+            command='mysql --user=root --password=%s '
+                    '--execute "%s"' % (
+                        self._config['root.password'], commands),
             may_fail=may_fail)
 
     def add_user(self, user, password, privileges, objects):
@@ -476,7 +496,7 @@ class Phabricator(object):
             ('phabricator', self._phabricator_path),
         ]
 
-        self.mysql.configure({
+        self.mysql.configure_daemon({
             'sql_mode': 'STRICT_ALL_TABLES',
 
             # Size of the memory area where InnoDB caches table
@@ -527,11 +547,13 @@ class Phabricator(object):
 
     def _run_config_set(self, id, value):
         config_path = posixpath.join(self._phabricator_path, 'bin', 'config')
-        self.shell.run([config_path, 'set', id, value])
+        self.shell.run([config_path, 'set', id, value],
+                       user=self._config['app.daemon.user.name'])
 
     def _run_storage(self, args):
         storage_path = posixpath.join(self._phabricator_path, 'bin', 'storage')
-        self.shell.run([storage_path] + args)
+        self.shell.run([storage_path] + args,
+                       user=self._config['app.daemon.user.name'])
 
     def install(self):
         self.system.update_upgrade()
@@ -554,37 +576,41 @@ class Phabricator(object):
         self.php.install()
 
         # Set up Phabricator.
-        self.log('Create Phabricator daemon user.')
-        username = self._config['app.daemon.user.name']
-        if not self.system.does_user_exist(username):
-            self.shell.run(['useradd', '--no-create-home',
-                            '--shell', '/bin/bash',
-                            username])
-
         self.log('Install packages Phabricator relies on.')
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
         # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
         self.system.install_packages(
-            ['git',
+            ['sudo',
+             'git',
              'mercurial',
              'subversion',
              'python-pygments',
              # 'sendmail',  # TODO: Do we need it?
              'imagemagick'])
 
+        self.log('Create Phabricator daemon user.')
+        daemon_user = self._config['app.daemon.user.name']
+        if not self.system.does_user_exist(daemon_user):
+            self.shell.run(['useradd', '--create-home',
+                            '--shell', '/bin/bash',
+                            daemon_user])
+
+        self.log("Create Phabricator application directory.")
+        self.shell.run(['mkdir', '-p', self._app_path])
+        self.shell.run(['chown', '%s:%s' % (daemon_user, daemon_user),
+                        self._app_path])
+
+        self._app_path = posixpath.join('/opt', self._config['app.id'])
+
         self.log("Retrieve phabricator components.")
         for component_name, path in self._components:
-            dir = posixpath.dirname(path)
             if not self.shell.does_file_exist(path):
+                self.shell.run('mkdir -p %s' % posixpath.dirname(path),
+                               user=daemon_user)
                 self.shell.run(
-                    'mkdir -p %s && '
-                    'cd %s && '
-                    'git clone https://github.com/phacility/%s.git' % (
-                        dir, dir, component_name))
-            else:
-                self.shell.run(
-                    'cd %s && '
-                    'git pull' % path)
+                    'git clone https://github.com/phacility/%s.git %s' % (
+                        component_name, path),
+                    user=daemon_user)
 
         self.log("Set up Phabricator MySQL user credentials.")
         self._run_config_set('mysql.user', self._config['mysql.user.name'])
@@ -614,7 +640,9 @@ class Phabricator(object):
 
         self.log('Set up MySQL Schema.')
         # TODO: Have a password for the root MySQL user.
-        self._run_storage(['upgrade', '--force', '--user', 'root'])
+        self._run_storage(
+            ['upgrade', '--force', '--user', 'root',
+             '--password', self.mysql.get_config()['root.password']])
 
         self.restart()
 
@@ -623,6 +651,12 @@ class Phabricator(object):
     def upgrade():
         # TODO
         # https://secure.phabricator.com/book/phabricator/article/upgrading/
+        self.log("Upgrade phabricator components.")
+        for component_name, path in self._components:
+            self.shell.run('cd %s && '
+                           'git pull' % path,
+                           user=self._config['app.daemon.user.name'])
+
         raise Error('Upgrading Phabricator is not supported yet.')
 
     def _manage_daemon(self, action):
@@ -658,23 +692,28 @@ class Phabricator(object):
 
 
 def main():
-    config = Config()
-    config.load('config')
+    phab_config = Config()
+    phab_config.load('config-phabricator')
+
+    mysql_config = Config()
+    mysql_config.load('config-mysql')
 
     try:
         local_shell = LocalShell(Logger())
         docker_shell = DockerContainerShell(container_name='phabricator',
                                             shell=local_shell)
         system = Ubuntu(docker_shell)
-        phab = Phabricator(mysql=MariaDB(system),
+        mysql = MariaDB(system, config=mysql_config)
+        phab = Phabricator(mysql=mysql,
                            webserver=Apache2(system),
                            php=PHP(system),
-                           config=config)
+                           config=phab_config)
 
         phab.install()
         phab.start()
     finally:
-        config.save('config')
+        phab_config.save('config-phabricator')
+        mysql_config.save('config-mysql')
 
 
 if __name__ == '__main__':
