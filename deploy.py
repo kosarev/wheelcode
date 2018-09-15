@@ -81,19 +81,19 @@ class Logger(object):
             stream.flush()
 
     def _write_stdout(self, output):
-        self._write(sys.stdout, output)
+        self._write(sys.stdout.buffer, output)
 
     def _write_stderr(self, output):
-        self._write(sys.stderr, output)
+        self._write(sys.stderr.buffer, output)
 
     def log_task(self, task):
-        self._write_stdout('# %s\n' % task)
+        self._write(sys.stdout, '# %s\n' % task)
 
     def __call__(self, task):
         self.log_task(task)
 
     def log_shell_command(self, command):
-        self._write_stdout('$ %s\n' % ' '.join(command))
+        self._write(sys.stdout, '$ %s\n' % ' '.join(command))
 
     def log_shell_stdout(self, output):
         self._write_stdout(output)
@@ -119,7 +119,7 @@ class LocalShell(object):
         stdout = []
         while process.poll() is None:
             while True:
-                chunk = process.stdout.read(1).decode('utf-8')
+                chunk = process.stdout.read(1)  # TODO: .decode('ascii')
                 if not chunk:
                     break
 
@@ -127,13 +127,14 @@ class LocalShell(object):
                 stdout.append(chunk)
 
             while True:
-                chunk = process.stderr.read(1).decode('utf-8')
+                chunk = process.stderr.read(1)  # TODO: .decode('ascii')
                 if not chunk:
                     break
 
                 self.log.log_shell_stderr(chunk)
 
-        stdout = ''.join(stdout)
+        # TODO: stdout = ''.join(stdout)
+        stdout = ''
         status = process.returncode
 
         if not may_fail and status != 0:
@@ -558,7 +559,6 @@ class Phabricator(object):
                        user=self._config['app.daemon.user.name'])
 
     def install(self):
-        '''
         self.system.update_upgrade()
 
         # Set up MySQL.
@@ -584,6 +584,7 @@ class Phabricator(object):
         # https://gist.github.com/sparrc/b4eff48a3e7af8411fc1
         self.system.install_packages(
             ['sudo',
+             'openssh-server',
              'git',
              'mercurial',
              'subversion',
@@ -615,9 +616,12 @@ class Phabricator(object):
                         component_name, path),
                     user=daemon_user)
 
-        self.log("Set up Phabricator MySQL user credentials.")
+        self.log('Set up Phabricator MySQL user credentials.')
         self._run_config_set('mysql.user', self._config['mysql.user.name'])
         self._run_config_set('mysql.pass', self._config['mysql.user.password'])
+
+        self.log('Set up Phanricator daemon user.')
+        self._run_config_set('phd.user', daemon_user)
 
         self.log('Configure Phabricator base and file URIs.')
         self._run_config_set('phabricator.base-uri',
@@ -646,7 +650,6 @@ class Phabricator(object):
         self._run_storage(
             ['upgrade', '--force', '--user', 'root',
              '--password', self.mysql.get_config()['root.password']])
-        '''
 
         # Set up git access.
         self.log('Create git user.')
@@ -657,17 +660,86 @@ class Phabricator(object):
                             git_user])
 
         self.log('Allow the git user to sudo as the daemon user.')
-        config_file_path = '/etc/sudoers.d/%s' % self._config['app.id']
-        self.shell.write_file(config_file_path,
-                              """
-Defaults:{git_user} !requiretty
+        path = '/etc/sudoers.d/%s' % self._config['app.id']
+        text = r"""Defaults:{git_user} !requiretty
 {git_user} ALL=({daemon_user}) SETENV: NOPASSWD: /usr/bin/git-upload-pack, /usr/bin/git-receive-pack, /usr/bin/hg, /usr/bin/svnserve
-""".format(
-            git_user=git_user,
-            daemon_user=self._config['app.daemon.user.name']).encode('utf-8'))
-        self.shell.run(['chmod', '440', config_file_path])
+www-data ALL=({daemon_user}) SETENV: NOPASSWD: /usr/bin/git-upload-pack, /usr/lib/git-core/git-http-backend, /usr/bin/hg
+"""
+        text = text.format(git_user=git_user,
+                           daemon_user=self._config['app.daemon.user.name'])
+        self.shell.write_file(path, text.encode('utf-8'))
+        self.shell.run(['chown', 'root:root', path])
+        self.shell.run(['chmod', '440', path])
 
         self._run_config_set('diffusion.ssh-user', git_user)
+        self._run_config_set('diffusion.ssh-port', '2222')
+
+        self.log('Copy Phabricator SSH hook.')
+        # TODO: Load the template, substitute values, and write back.
+        path = '/usr/local/lib/phabricator-ssh-hook.sh'
+        text = r"""#!/bin/sh
+
+# NOTE: Replace this with the username that you expect users to connect with.
+VCSUSER="vcs-user"
+
+# NOTE: Replace this with the path to your Phabricator directory.
+ROOT="/path/to/phabricator"
+
+if [ "$1" != "$VCSUSER" ];
+then
+  exit 1
+fi
+
+exec "$ROOT/bin/ssh-auth" $@
+"""
+        text = text.replace('vcs-user',
+                            self._config['app.git.user.name'])
+        text = text.replace('/path/to/phabricator',
+                            self._phabricator_path)
+        self.shell.write_file(path, text.encode('utf-8'))
+        self.shell.run(['chown', 'root:root', path])
+        self.shell.run(['chmod', '755', path])
+
+        self.log('Configure SSH for Git access.')
+        path = '/etc/ssh/sshd_config.phabricator'
+        text = r"""
+# NOTE: You must have OpenSSHD 6.2 or newer; support for AuthorizedKeysCommand
+# was added in this version.
+
+# NOTE: Edit these to the correct values for your setup.
+
+AuthorizedKeysCommand /usr/libexec/phabricator-ssh-hook.sh
+AuthorizedKeysCommandUser vcs-user
+AllowUsers vcs-user
+
+# You may need to tweak these options, but mostly they just turn off everything
+# dangerous.
+
+Port 2222
+Protocol 2
+PermitRootLogin no
+AllowAgentForwarding no
+AllowTcpForwarding no
+PrintMotd no
+PrintLastLog no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+AuthorizedKeysFile none
+
+PidFile /var/run/sshd-phabricator.pid
+"""
+        text = text.replace('/usr/libexec/phabricator-ssh-hook.sh',
+                            '/usr/local/lib/phabricator-ssh-hook.sh')
+        text = text.replace('vcs-user',
+                            self._config['app.git.user.name'])
+        # text = text.replace('Port 2222', 'Port 22')
+        self.shell.write_file(path, text.encode('utf-8'))
+        self.shell.run(['chown', 'root:root', path])
+        self.shell.run(['chmod', '--reference=/opt/phabricator/phabricator/resources/sshd/sshd_config.phabricator.example',  # TODO
+                        path])
+        self.system.manage_service('ssh', 'restart')
+
+        self.shell.run('/usr/sbin/sshd -f /etc/ssh/sshd_config.phabricator')
 
         self.restart()
 
@@ -686,7 +758,8 @@ Defaults:{git_user} !requiretty
 
     def _manage_daemon(self, action):
         phd_path = posixpath.join(self._phabricator_path, 'bin', 'phd')
-        self.shell.run([phd_path, action])
+        self.shell.run([phd_path, action],
+                       user=self._config['app.daemon.user.name'])
 
     def _start_daemon(self):
         self._restart_daemon()
