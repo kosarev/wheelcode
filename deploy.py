@@ -197,8 +197,13 @@ class Ubuntu(object):
         #       again.
         self._apt_get(['install', '--yes'] + packages)
 
-    def _manage_service(self, service, action):
+    def manage_service(self, service, action):
         self.shell.run(['service', service, action])
+
+    def does_user_exist(self, username):
+        status, stdout = self.shell.run(['id', '-u', username],
+                                        may_fail=True)
+        return status == 0
 
 
 class MariaDB(object):
@@ -268,7 +273,7 @@ class MariaDB(object):
                 objects=objects))
 
     def _manage(self, action):
-        self.system._manage_service('mysql', action)
+        self.system.manage_service('mysql', action)
 
     def start(self):
         if not self._started:
@@ -363,7 +368,7 @@ class Apache2(object):
         self._installed = True
 
     def _manage(self, action):
-        self.system._manage_service('apache2', action)
+        self.system.manage_service('apache2', action)
 
     def start(self):
         if not self._started:
@@ -549,15 +554,12 @@ class Phabricator(object):
         self.php.install()
 
         # Set up Phabricator.
-        self.log('Create Phabricator application user.')
-
-
-        ''' TODO
-    dbg "Creating a user for Phabricator's files: $PH_USER"
-    useradd -m ${PH_USER} -s /bin/bash && c=0 || c=$?
-    # Ignore exit code 9 (user already exists), otherwise fail
-    test $c -eq 0 -o $c -eq 9 || exit $c
-        '''
+        self.log('Create Phabricator daemon user.')
+        username = self._config['app.daemon.user.name']
+        if not self.system.does_user_exist(username):
+            self.shell.run(['useradd', '--no-create-home',
+                            '--shell', '/bin/bash',
+                            username])
 
         self.log('Install packages Phabricator relies on.')
         # https://secure.phabricator.com/source/phabricator/browse/master/scripts/install/install_ubuntu.sh
