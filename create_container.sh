@@ -15,6 +15,3 @@ docker run \
     --publish 80:80 \
     --network=phabricator_net \
     ubuntu:18.04
-
-echo '{}' >config-phabricator
-echo '{}' >config-mysql

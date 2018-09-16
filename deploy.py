@@ -798,29 +798,50 @@ PidFile /var/run/sshd-phabricator.pid
         self.mysql.stop()
 
 
-def main():
-    phab_config = Config()
-    phab_config.load('config-phabricator')
-
-    mysql_config = Config()
-    mysql_config.load('config-mysql')
-
-    try:
+class MyDockerPhabricator(Phabricator):
+    def __init__(self, mysql_config, app_config):
         local_shell = LocalShell(Logger())
-        docker_shell = DockerContainerShell(container_name='phabricator',
-                                            shell=local_shell)
-        system = Ubuntu(docker_shell)
-        mysql = MariaDB(system, config=mysql_config)
-        phab = Phabricator(mysql=mysql,
-                           webserver=Apache2(system),
-                           php=PHP(system),
-                           config=phab_config)
 
-        phab.install()
-        phab.start()
-    finally:
-        phab_config.save('config-phabricator')
-        mysql_config.save('config-mysql')
+        docker_shell = DockerContainerShell(
+            container_name='phabricator',
+            shell=local_shell)
+
+        system = Ubuntu(docker_shell)
+
+        mysql = MariaDB(system, config=mysql_config)
+
+        super().__init__(
+            mysql=mysql,
+            webserver=Apache2(system),
+            php=PHP(system),
+            config=app_config)
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit('Usage: deploy.py <action>')
+
+    # Create default configs.
+    configs = {'config-phabricator.mysql': Config(),
+               'config-phabricator.app': Config()}
+
+    # Loads configs.
+    # TODO: Ignore non-existing config files.
+    for id, config in configs.items():
+        config.load(id)
+
+    # Create app object.
+    phabricator = MyDockerPhabricator(
+        mysql_config=configs['config-phabricator.mysql'],
+        app_config=configs['config-phabricator.app'])
+
+    # Update configs before any further actions.
+    for id, config in configs.items():
+        config.save(id)
+
+    # Perform whatever is the requested action, e.g.,
+    # 'phabricator.install()'.
+    eval(sys.argv[1])
 
 
 if __name__ == '__main__':
