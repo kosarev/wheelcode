@@ -1,4 +1,5 @@
 #!/bin/bash
+cd $(dirname ${0})
 . ./bash/preambule.sh
 
 if [ ! "$(docker network ls | grep phabricator_net)" ]; then

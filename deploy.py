@@ -814,6 +814,14 @@ PidFile /var/run/sshd-phabricator.pid
         self._stop_daemon()
         self.mysql.stop()
 
+    def backup(self):
+        self.shell.run(['rm', '-f', '/root/db.sql', '/root/backup.tgz'])
+        self._run_storage(['dump', '>/root/db.sql'])
+        self.shell.run(['tar', 'czf', '/root/backup.tgz',
+                        '/root/db.sql',
+                        self._repos_path,
+                        self._files_path])
+
 
 class MyDockerPhabricator(Phabricator):
     def __init__(self, mysql_config, app_config):

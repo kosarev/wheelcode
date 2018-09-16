@@ -1,4 +1,5 @@
 #!/bin/bash
+cd $(dirname ${0})
 . ./bash/preambule.sh
 
 # Create virtual environment.
