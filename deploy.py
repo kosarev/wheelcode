@@ -564,6 +564,44 @@ class Phabricator(object):
     def install(self):
         self.system.update_upgrade()
 
+        # Set up supervisor.
+        # TODO: Make it to be a separate object.
+        path = '/etc/supervisor/conf.d/phabricator.conf'
+        text = """
+[program:sshd]
+command=/usr/sbin/sshd -D -e
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
+
+[program:cron]
+command=/usr/sbin/cron -n
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
+
+[program:mysql]
+command=/usr/bin/mysqld_safe
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
+
+[program:apache2]
+command=/usr/sbin/apache2ctl -D FOREGROUND
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
+
+[program:php-fpm]
+command=/usr/sbin/php-fpm
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
+"""
+        self.shell.write_file(path, text.encode('utf-8'))
+        self.shell.run(['chown', 'root:root', path])
+        self.shell.run(['chmod', '644', path])
+
         # Set up MySQL.
         self.mysql.install()
 
