@@ -838,6 +838,8 @@ def main():
     if len(sys.argv) != 2:
         sys.exit('Usage: deploy.py <action>')
 
+    action = sys.argv[1]
+
     # Create default configs.
     configs = {'config-phabricator.mysql': Config(),
                'config-phabricator.app': Config()}
@@ -860,7 +862,7 @@ def main():
 
     # Perform whatever is the requested action, e.g.,
     # 'phabricator.install()'.
-    eval(sys.argv[1])
+    eval(action)
 
 
 if __name__ == '__main__':
