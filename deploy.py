@@ -587,7 +587,7 @@ class Phabricator(object):
         path = '/etc/supervisor/conf.d/phabricator.conf'
         text = """
 [program:sshd]
-command=/usr/sbin/sshd -D -e
+command=/usr/sbin/sshd -D -e -f /etc/ssh/sshd_config.phabricator
 stdout_logfile=syslog
 stderr_logfile=syslog
 autorestart=true
