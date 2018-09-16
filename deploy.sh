@@ -3,4 +3,4 @@
 
 # Run the deployment script.
 source ./.venv/bin/activate
-python3 deploy.py 'pabricator.install()'
+python3 deploy.py 'phabricator.install()'

@@ -493,6 +493,8 @@ class Phabricator(object):
         self._webroot_path = posixpath.join(self._phabricator_path, 'webroot')
         self._arcanist_path = posixpath.join(self._app_path, 'arcanist')
         self._libphutil_path = posixpath.join(self._app_path, 'libphutil')
+        self._repos_path = posixpath.join(self._app_path, 'repos')
+        self._files_path = posixpath.join(self._app_path, 'files')
 
         self._components = [
             ('libphutil', self._libphutil_path),
@@ -638,13 +640,28 @@ class Phabricator(object):
                              'PhabricatorMailImplementationPHPMailerAdapter')
 
         self.log('Set up Phabricator repositories directory.')
-        self.shell.run('mkdir -p /opt/repos')
-        self._run_config_set('repository.default-local-path', '/opt/repos')
+        self.shell.run(['mkdir', '-p', self._repos_path])
+        self.shell.run(['chown', '-R',
+                        '%s:%s' % (self._config['app.daemon.user.name'],
+                                   'www-data'),
+                        self._repos_path])
+        self.shell.run(['chmod', '-R', '770', self._repos_path])
+        self._run_config_set('repository.default-local-path', self._repos_path)
 
         self.log('Set up Phabricator files directory.')
-        self.shell.run('mkdir -p /opt/files')
-        self.shell.run('chown -R www-data:www-data /opt/files')
-        self._run_config_set('storage.local-disk.path', '/opt/files')
+        self.shell.run(['mkdir', '-p', self._files_path])
+        self.shell.run(['chown', '-R',
+                        '%s:%s' % (self._config['app.daemon.user.name'],
+                                   'www-data'),
+                        self._files_path])
+        self.shell.run(['chmod', '-R', '770', self._files_path])
+        self._run_config_set('storage.local-disk.path', self._files_path)
+
+        self.log('Disable storing large files in MySQL.')
+        # By default, Phabricator saves 1MiB files in the
+        # database. Disabling this to make the database (and
+        # especially dumps) faster.
+        self._run_config_set('storage.mysql-engine.max-size', '0')
 
         self.log('Set up MySQL Schema.')
         # TODO: Have a password for the root MySQL user.
@@ -825,10 +842,12 @@ def main():
     configs = {'config-phabricator.mysql': Config(),
                'config-phabricator.app': Config()}
 
-    # Loads configs.
-    # TODO: Ignore non-existing config files.
+    # Loads existing configs.
     for id, config in configs.items():
-        config.load(id)
+        try:
+            config.load(id)
+        except FileNotFoundError:
+            pass
 
     # Create app object.
     phabricator = MyDockerPhabricator(
