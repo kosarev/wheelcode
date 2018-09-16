@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-
 import os
 import posixpath
 import subprocess
@@ -18,7 +17,8 @@ class Error(Exception):
 # Makes sure all arguments passed are identical.
 def _identical(*args):
     if len(set(args)) > 1:
-        raise Error('These objects are required to be identical: %s' % repr(args))
+        raise Error('These objects are required to be '
+                    'identical: %s' % repr(args))
     return args[0]
 
 
@@ -374,7 +374,7 @@ class Apache2(object):
         self.system.install_packages(
             ['apache2',
              'libapache2-mod-php',  # TODO: Not all setups need this.
-            ])
+             ])
 
         self.shell.run('a2enmod rewrite')  # TODO: Not all setups need this.
 
@@ -426,7 +426,8 @@ class PHP(object):
                 continue
 
             if self._config[option] != value:
-                raise Error('Conflicting values for PHP option %s: %s and %s' % (
+                raise Error('Conflicting values for PHP '
+                            'option %s: %s and %s' % (
                                 option, self._config[option], value))
 
     def _update_config_file(self):
@@ -661,9 +662,15 @@ class Phabricator(object):
 
         self.log('Allow the git user to sudo as the daemon user.')
         path = '/etc/sudoers.d/%s' % self._config['app.id']
-        text = r"""Defaults:{git_user} !requiretty
-{git_user} ALL=({daemon_user}) SETENV: NOPASSWD: /usr/bin/git-upload-pack, /usr/bin/git-receive-pack, /usr/bin/hg, /usr/bin/svnserve
-www-data ALL=({daemon_user}) SETENV: NOPASSWD: /usr/bin/git-upload-pack, /usr/lib/git-core/git-http-backend, /usr/bin/hg
+        # TODO: Do we really need the line for 'www-data'?
+        text = """\
+Defaults:{git_user} !requiretty
+{git_user} ALL=({daemon_user}) SETENV: NOPASSWD: \
+/usr/bin/git-upload-pack, /usr/bin/git-receive-pack, \
+/usr/bin/hg, /usr/bin/svnserve
+www-data ALL=({daemon_user}) SETENV: NOPASSWD: \
+/usr/bin/git-upload-pack, /usr/lib/git-core/git-http-backend, \
+/usr/bin/hg
 """
         text = text.format(git_user=git_user,
                            daemon_user=self._config['app.daemon.user.name'])
@@ -735,7 +742,9 @@ PidFile /var/run/sshd-phabricator.pid
         # text = text.replace('Port 2222', 'Port 22')
         self.shell.write_file(path, text.encode('utf-8'))
         self.shell.run(['chown', 'root:root', path])
-        self.shell.run(['chmod', '--reference=/opt/phabricator/phabricator/resources/sshd/sshd_config.phabricator.example',  # TODO
+        self.shell.run(['chmod',
+                        '--reference=/opt/phabricator/phabricator/resources/'
+                        'sshd/sshd_config.phabricator.example',  # TODO
                         path])
         self.system.manage_service('ssh', 'restart')
 
