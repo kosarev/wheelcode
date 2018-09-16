@@ -561,6 +561,24 @@ class Phabricator(object):
         self.shell.run([storage_path] + args,
                        user=self._config['app.daemon.user.name'])
 
+    def _set_up_repos_dir(self):
+        self.log('Set up Phabricator repositories directory.')
+        self.shell.run(['mkdir', '-p', self._repos_path])
+        self.shell.run(['chown', '-R',
+                        '%s:%s' % (self._config['app.daemon.user.name'],
+                                   'www-data'),
+                        self._repos_path])
+        self.shell.run(['chmod', '-R', '770', self._repos_path])
+
+    def _set_up_files_dir(self):
+        self.log('Set up Phabricator files directory.')
+        self.shell.run(['mkdir', '-p', self._files_path])
+        self.shell.run(['chown', '-R',
+                        '%s:%s' % (self._config['app.daemon.user.name'],
+                                   'www-data'),
+                        self._files_path])
+        self.shell.run(['chmod', '-R', '770', self._files_path])
+
     def install(self):
         self.system.update_upgrade()
 
@@ -677,22 +695,10 @@ autorestart=true
         self._run_config_set('metamta.mail-adapter',
                              'PhabricatorMailImplementationPHPMailerAdapter')
 
-        self.log('Set up Phabricator repositories directory.')
-        self.shell.run(['mkdir', '-p', self._repos_path])
-        self.shell.run(['chown', '-R',
-                        '%s:%s' % (self._config['app.daemon.user.name'],
-                                   'www-data'),
-                        self._repos_path])
-        self.shell.run(['chmod', '-R', '770', self._repos_path])
+        self._set_up_repos_dir()
         self._run_config_set('repository.default-local-path', self._repos_path)
 
-        self.log('Set up Phabricator files directory.')
-        self.shell.run(['mkdir', '-p', self._files_path])
-        self.shell.run(['chown', '-R',
-                        '%s:%s' % (self._config['app.daemon.user.name'],
-                                   'www-data'),
-                        self._files_path])
-        self.shell.run(['chmod', '-R', '770', self._files_path])
+        self._set_up_files_dir()
         self._run_config_set('storage.local-disk.path', self._files_path)
 
         self.log('Disable storing large files in MySQL.')
@@ -859,6 +865,17 @@ PidFile /var/run/sshd-phabricator.pid
                         '/root/db.sql',
                         self._repos_path,
                         self._files_path])
+
+    def restore(self):
+        # TODO: Stop daemons before restoring.
+        self.shell.run(['tar', 'xzf', '/root/backup.tgz', '-C', '/'])
+
+        self.shell.run(
+            'mysql --user=root --password=%s '
+            '</root/db.sql' % self.mysql.get_config()['root.password'])
+
+        self._set_up_repos_dir()
+        self._set_up_files_dir()
 
 
 class MyDockerPhabricator(Phabricator):
