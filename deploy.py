@@ -615,6 +615,12 @@ command=/usr/sbin/php-fpm
 stdout_logfile=syslog
 stderr_logfile=syslog
 autorestart=true
+
+[program:phd]
+command=/opt/phabricator/phabricator/bin/phd start
+stdout_logfile=syslog
+stderr_logfile=syslog
+autorestart=true
 """
         self.shell.write_file(path, text.encode('utf-8'))
         self.shell.run(['chown', 'root:root', path])
