@@ -568,7 +568,10 @@ class Phabricator(object):
                         '%s:%s' % (self._config['app.daemon.user.name'],
                                    'www-data'),
                         self._repos_path])
-        self.shell.run(['chmod', '-R', '770', self._repos_path])
+        self.shell.run(['find', self._repos_path, '-type', 'd',
+                        '-exec', 'chmod', '770', '{}', r'\;'])
+        self.shell.run(['find', self._repos_path, '-type', 'f',
+                        '-exec', 'chmod', '660', '{}', r'\;'])
 
     def _set_up_files_dir(self):
         self.log('Set up Phabricator files directory.')
@@ -577,7 +580,10 @@ class Phabricator(object):
                         '%s:%s' % (self._config['app.daemon.user.name'],
                                    'www-data'),
                         self._files_path])
-        self.shell.run(['chmod', '-R', '770', self._files_path])
+        self.shell.run(['find', self._files_path, '-type', 'd',
+                        '-exec', 'chmod', '770', '{}', r'\;'])
+        self.shell.run(['find', self._files_path, '-type', 'f',
+                        '-exec', 'chmod', '660', '{}', r'\;'])
 
     def install(self):
         self.system.update_upgrade()

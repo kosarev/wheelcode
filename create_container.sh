@@ -15,4 +15,5 @@ docker run \
     --ip=172.19.0.5 \
     --publish 80:80 \
     --network=phabricator_net \
+    --restart unless-stopped \
     ubuntu_supervisor:18.04
