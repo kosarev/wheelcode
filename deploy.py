@@ -891,11 +891,11 @@ PidFile /var/run/sshd-phabricator.pid
 
 
 class MyDockerPhabricator(Phabricator):
-    def __init__(self, mysql_config, app_config):
+    def __init__(self, container_name, mysql_config, app_config):
         local_shell = LocalShell(Logger())
 
         docker_shell = DockerContainerShell(
-            container_name='phabricator',
+            container_name=container_name,
             shell=local_shell)
 
         system = Ubuntu(docker_shell)
@@ -909,7 +909,7 @@ class MyDockerPhabricator(Phabricator):
             config=app_config)
 
 
-def main():
+def deploy(container_name):
     if len(sys.argv) != 2:
         sys.exit('Usage: deploy.py <action>')
 
@@ -919,7 +919,7 @@ def main():
     configs = {'config-phabricator.mysql': Config(),
                'config-phabricator.app': Config()}
 
-    # Loads existing configs.
+    # Load existing configs.
     for id, config in configs.items():
         try:
             config.load(id)
@@ -928,6 +928,7 @@ def main():
 
     # Create app object.
     phabricator = MyDockerPhabricator(
+        container_name=container_name,
         mysql_config=configs['config-phabricator.mysql'],
         app_config=configs['config-phabricator.app'])
 
@@ -938,6 +939,10 @@ def main():
     # Perform whatever is the requested action, e.g.,
     # 'phabricator.install()'.
     eval(action)
+
+
+def main():
+    deploy(container_name='phabricator')
 
 
 if __name__ == '__main__':
