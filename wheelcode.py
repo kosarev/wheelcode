@@ -911,7 +911,7 @@ class MyDockerPhabricator(Phabricator):
 
 def deploy(container_name):
     if len(sys.argv) != 2:
-        sys.exit('Usage: deploy.py <action>')
+        sys.exit('Usage: wheelcode.py <action>')
 
     action = sys.argv[1]
 

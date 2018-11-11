@@ -5,4 +5,4 @@ cd $(dirname ${0})
 # Run the deployment script.
 source ./.venv/bin/activate
 
-python3 deploy.py "$@"
+python3 wheelcode.py "$@"
