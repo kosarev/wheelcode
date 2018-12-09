@@ -377,6 +377,7 @@ class Apache2(object):
              ])
 
         self.shell.run('a2enmod rewrite')  # TODO: Not all setups need this.
+        self.shell.run('a2enmod ssl')      # TODO: Not all setups need this.
 
         for id, config in self._sites.items():
             self._install_site_config_file(id, config)
