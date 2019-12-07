@@ -451,7 +451,9 @@ class PHP(object):
              'php-apcu',
              'php-cli',
              'php-json',
-             'php-mbstring'])
+             'php-mbstring',
+             'php-zip',
+            ])
 
         self._update_config_file()
 
@@ -561,6 +563,15 @@ class Phabricator(object):
         storage_path = posixpath.join(self._phabricator_path, 'bin', 'storage')
         self.shell.run([storage_path] + args,
                        user=self._config['app.daemon.user.name'])
+
+    def _run_storage_as_root(self, args):
+        # TODO: Have a password for the root MySQL user.
+        self._run_storage(
+            args + ['--force', '--user', 'root',
+                    '--password', self.mysql.get_config()['root.password']])
+
+    def _upgrade_storage(self):
+        self._run_storage_as_root(['upgrade'])
 
     def _set_up_repos_dir(self):
         self.log('Set up Phabricator repositories directory.')
@@ -704,9 +715,10 @@ autorestart=true
         self.log('Enable Pygments.')
         self._run_config_set('pygments.enabled', 'true')
 
-        self.log('Configure Phabricator mail adapter.')
-        self._run_config_set('metamta.mail-adapter',
-                             'PhabricatorMailImplementationPHPMailerAdapter')
+        # TODO: It seems we now should configure 'cluster.mailers' instead.
+        # self.log('Configure Phabricator outbound mail.')
+        # self._run_config_set('metamta.mail-adapter',
+        #                      'PhabricatorMailImplementationPHPMailerAdapter')
 
         self._set_up_repos_dir()
         self._run_config_set('repository.default-local-path', self._repos_path)
@@ -721,10 +733,7 @@ autorestart=true
         self._run_config_set('storage.mysql-engine.max-size', '0')
 
         self.log('Set up MySQL Schema.')
-        # TODO: Have a password for the root MySQL user.
-        self._run_storage(
-            ['upgrade', '--force', '--user', 'root',
-             '--password', self.mysql.get_config()['root.password']])
+        self._upgrade_storage()
 
         # Set up git access.
         self.log('Create git user.')
@@ -828,7 +837,7 @@ PidFile /var/run/sshd-phabricator.pid
 
         self.shell.run('ps aux')
 
-    def upgrade():
+    def upgrade(self):
         # TODO
         # https://secure.phabricator.com/book/phabricator/article/upgrading/
         self.log("Upgrade phabricator components.")
@@ -881,6 +890,8 @@ PidFile /var/run/sshd-phabricator.pid
 
     def restore(self):
         # TODO: Stop daemons before restoring.
+        self._run_storage_as_root(['destroy'])
+
         self.shell.run(['tar', 'xzf', '/root/backup.tgz', '-C', '/'])
 
         self.shell.run(
@@ -889,6 +900,8 @@ PidFile /var/run/sshd-phabricator.pid
 
         self._set_up_repos_dir()
         self._set_up_files_dir()
+
+        self._upgrade_storage()
 
 
 class MyDockerPhabricator(Phabricator):
