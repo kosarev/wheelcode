@@ -580,10 +580,13 @@ class Phabricator(object):
                         '%s:%s' % (self._config['app.daemon.user.name'],
                                    'www-data'),
                         self._repos_path])
+        # TODO: For some reason Phabricator changes the mode of ./config,
+        #       so for now we give access to 'other' users here. Needs a
+        #       proper fix.
         self.shell.run(['find', self._repos_path, '-type', 'd',
-                        '-exec', 'chmod', '770', '{}', r'\;'])
+                        '-exec', 'chmod', '777', '{}', r'\;'])
         self.shell.run(['find', self._repos_path, '-type', 'f',
-                        '-exec', 'chmod', '660', '{}', r'\;'])
+                        '-exec', 'chmod', '666', '{}', r'\;'])
 
     def _set_up_files_dir(self):
         self.log('Set up Phabricator files directory.')
